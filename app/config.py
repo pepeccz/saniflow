@@ -60,6 +60,17 @@ class Settings(BaseSettings):
     AUDIT_ENABLED: bool = True
     AUDIT_LOG_PATH: str = "audit.log"
 
+    # GLiNER (optional deep PII detection)
+    GLINER_ENABLED: bool = False
+    GLINER_MODEL: str = "urchade/gliner_multi_pii-v1"
+    GLINER_THRESHOLD: float = 0.5
+    GLINER_LABELS: list[str] = [
+        "person", "email", "phone number", "iban", "credit card number",
+        "date of birth", "address", "passport number", "social security number",
+        "driver license", "medical condition", "medication", "ip address",
+        "bank account", "tax identification number", "vehicle registration",
+    ]
+
     # Temp storage
     TEMP_DIR: str = "/tmp/saniflow"
 

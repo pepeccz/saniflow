@@ -18,6 +18,7 @@ class EntityType(str, Enum):
     DATE_OF_BIRTH = "DATE_OF_BIRTH"
     FACE = "FACE"
     SIGNATURE = "SIGNATURE"
+    SENSITIVE_DATA = "SENSITIVE_DATA"
 
 
 class RedactionStyle(str, Enum):

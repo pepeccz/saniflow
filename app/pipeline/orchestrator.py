@@ -103,6 +103,7 @@ class SanitizationPipeline:
         # Detectors
         self._text_detector = TextPiiDetector()
         self._visual_detector = VisualDetector()
+        self._gliner_detector: object | None = None
 
         # Lazy instance cache for extractors/sanitizers
         self._instance_cache: dict[type, object] = {}
@@ -168,6 +169,20 @@ class SanitizationPipeline:
         # Always run text PII detection.
         text_findings = self._text_detector.detect(extraction_result, level)
         findings.extend(text_findings)
+
+        # Run GLiNER detection if enabled (optional second layer).
+        if settings.GLINER_ENABLED:
+            try:
+                if self._gliner_detector is None:
+                    from app.pipeline.detectors.gliner_pii import GlinerPiiDetector
+                    self._gliner_detector = GlinerPiiDetector()
+                gliner_findings = self._gliner_detector.detect(extraction_result.text)
+                if gliner_findings:
+                    from app.pipeline.detectors.gliner_pii import merge_findings
+                    findings = merge_findings(findings, gliner_findings)
+                    logger.info("GLiNER detected %d additional entities", len(gliner_findings))
+            except Exception:
+                logger.warning("GLiNER detection failed, continuing with spaCy findings only", exc_info=True)
 
         # Run visual detection only in strict mode.
         if level == SanitizationLevel.STRICT:
