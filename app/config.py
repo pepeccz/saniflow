@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -5,6 +6,16 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     model_config = {"env_prefix": "SANIFLOW_"}
+
+    @field_validator("API_KEYS", mode="before")
+    @classmethod
+    def _parse_api_keys(cls, v: object) -> list[str]:
+        """Accept a comma-separated string and return a list of non-empty keys."""
+        if isinstance(v, str):
+            return [k.strip() for k in v.split(",") if k.strip()]
+        if isinstance(v, list):
+            return [str(k).strip() for k in v if str(k).strip()]
+        return []
 
     # File constraints
     MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20 MB
@@ -28,6 +39,12 @@ class Settings(BaseSettings):
     # Models
     YUNET_MODEL_PATH: str = "/app/models/face_detection_yunet_2023mar.onnx"
     YUNET_SCORE_THRESHOLD: float = 0.4
+
+    # Rate limiting
+    RATE_LIMIT: int = 30  # requests per minute per client IP
+
+    # Authentication
+    API_KEYS: list[str] = []
 
     # Temp storage
     TEMP_DIR: str = "/tmp/saniflow"

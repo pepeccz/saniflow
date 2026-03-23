@@ -2,9 +2,10 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from app.api.routes import router
 from app.api.schemas import HealthResponse
@@ -29,6 +30,20 @@ app = FastAPI(
     description="Sanitization pipeline for PII detection and redaction in documents and images",
     lifespan=lifespan,
 )
+
+class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
+    """Inject X-RateLimit-* headers from request.state into responses."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        if hasattr(request.state, "rate_limit_limit"):
+            response.headers["X-RateLimit-Limit"] = str(request.state.rate_limit_limit)
+            response.headers["X-RateLimit-Remaining"] = str(request.state.rate_limit_remaining)
+            response.headers["X-RateLimit-Reset"] = str(request.state.rate_limit_reset)
+        return response
+
+
+app.add_middleware(RateLimitHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

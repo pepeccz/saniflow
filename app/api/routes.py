@@ -6,9 +6,12 @@ import base64
 import logging
 from io import BytesIO
 
-from fastapi import APIRouter, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
+from app.api.auth import require_api_key
+from app.api.rate_limit import check_rate_limit
 from app.api.schemas import (
     ErrorResponse,
     FindingResponse,
@@ -106,13 +109,17 @@ def _build_sanitized_filename(original: str) -> str:
     "/sanitize",
     response_model=None,
     responses={
+        401: {"model": ErrorResponse, "description": "Invalid or missing API key"},
         413: {"model": ErrorResponse, "description": "File too large"},
         415: {"model": ErrorResponse, "description": "Unsupported file type"},
         422: {"model": ErrorResponse, "description": "Invalid input or corrupted file"},
+        429: {"model": ErrorResponse, "description": "Too many requests"},
         500: {"model": ErrorResponse, "description": "Internal processing error"},
     },
+    dependencies=[Depends(require_api_key), Depends(check_rate_limit)],
 )
 async def sanitize(
+    request: Request,
     file: UploadFile,
     level: str = Form(default="standard"),
     response_format: str = Form(default="file"),
@@ -136,7 +143,8 @@ async def sanitize(
     # --- Process through pipeline ---
     try:
         pipeline = SanitizationPipeline()
-        result: SanitizationResult = pipeline.process(
+        result: SanitizationResult = await run_in_threadpool(
+            pipeline.process,
             file_content=file_content,
             filename=filename,
             level=validated_level,
