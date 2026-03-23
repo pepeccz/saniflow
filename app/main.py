@@ -1,5 +1,8 @@
+import json
 import logging
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
@@ -14,9 +17,51 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 
+# ── Structured JSON log formatter ─────────────────────────────────────
+
+
+class JsonFormatter(logging.Formatter):
+    """Emit each log record as a single JSON object."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry: dict = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        # Merge extra fields injected via ``extra={...}``
+        for key in ("method", "path", "status", "duration_ms", "client_ip"):
+            value = getattr(record, key, None)
+            if value is not None:
+                entry[key] = value
+        return json.dumps(entry, default=str)
+
+
+def _configure_logging() -> None:
+    """Set up root logger based on SANIFLOW_LOG_LEVEL / SANIFLOW_LOG_FORMAT."""
+    root = logging.getLogger()
+    root.setLevel(getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO))
+
+    handler = logging.StreamHandler()
+    if settings.LOG_FORMAT == "json":
+        handler.setFormatter(JsonFormatter())
+    else:
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)-8s [%(name)s] %(message)s")
+        )
+
+    root.handlers = [handler]
+
+
+# ── Application lifespan ──────────────────────────────────────────────
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: setup and teardown."""
+    _configure_logging()
+
     temp_dir = Path(settings.TEMP_DIR)
     temp_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Created temp directory: %s", temp_dir)
@@ -87,7 +132,32 @@ class RateLimitHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    """Log every HTTP request with method, path, status, duration, and client IP."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        start = time.monotonic()
+        response = await call_next(request)
+        duration_ms = int((time.monotonic() - start) * 1000)
+        logger.info(
+            "%s %s %s %dms",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status": response.status_code,
+                "duration_ms": duration_ms,
+                "client_ip": request.client.host if request.client else None,
+            },
+        )
+        return response
+
+
 app.add_middleware(RateLimitHeadersMiddleware)
+app.add_middleware(RequestLoggingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
