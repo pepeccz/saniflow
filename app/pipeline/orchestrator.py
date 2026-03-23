@@ -17,6 +17,7 @@ from app.models.findings import (
     SanitizationLevel,
     SanitizationResult,
 )
+from app.pipeline.preprocessing import normalize_image
 from app.pipeline.detectors.text_pii import TextPiiDetector
 from app.pipeline.detectors.visual import VisualDetector
 from app.pipeline.extractors.image import ImageExtractor
@@ -97,6 +98,10 @@ class SanitizationPipeline:
         is_pdf = _is_pdf(file_content, filename)
         file_type = "PDF" if is_pdf else "image"
         logger.info("Processing '%s' as %s (level=%s)", filename, file_type, level.value)
+
+        # ── Step 0: Preprocess ─────────────────────────────────────────
+        if not is_pdf:
+            file_content = normalize_image(file_content, filename)
 
         # ── Step 1: Extract ───────────────────────────────────────────
         extractor = self._pdf_extractor if is_pdf else self._image_extractor

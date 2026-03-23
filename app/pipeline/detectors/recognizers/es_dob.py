@@ -1,6 +1,6 @@
 """Custom Presidio recognizer for Spanish dates of birth.
 
-Detects date patterns (dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy) ONLY when
+Detects date patterns (dd/mm/yyyy, dd-mm-yyyy, dd.mm.yyyy, dd mm yyyy) ONLY when
 they appear near birth-related context words.  The low base score (0.3)
 ensures that generic dates (invoice dates, policy dates, etc.) are NOT
 flagged — context boosting is required for a match to exceed the
@@ -18,7 +18,7 @@ class EsDateOfBirthRecognizer(PatternRecognizer):
     PATTERNS = [
         Pattern(
             name="ES_DATE_OF_BIRTH",
-            regex=r"\b\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4}\b",
+            regex=r"\b\d{1,2}[/\-\.\s]\d{1,2}[/\-\.\s]\d{2,4}\b",
             score=0.3,
         ),
     ]

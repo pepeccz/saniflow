@@ -50,6 +50,11 @@ def _selective_title_case(text: str) -> str:
     return _ALL_CAPS_RE.sub(lambda m: m.group().title(), text)
 
 
+_PERSON_LABEL_WORDS: frozenset[str] = frozenset({
+    "apellido", "apellidos", "nombre", "primer", "segundo",
+})
+
+
 def _filter_person_findings(
     findings: list[Finding],
     deny_list: frozenset[str],
@@ -62,7 +67,14 @@ def _filter_person_findings(
             continue
         if f.original_text is None:
             continue
-        tokens = [t.strip(",.") for t in f.original_text.split()]
+        # Strip structural label words (e.g. "APELLIDOS", "NOMBRE") that
+        # appear in structured ID-document matches before counting tokens.
+        tokens = [
+            t.strip(",.|")
+            for t in f.original_text.split()
+            if t.strip(",.|").lower() not in _PERSON_LABEL_WORDS
+        ]
+        tokens = [t for t in tokens if t]  # drop empties
         if len(tokens) < 2 or len(tokens) > 4:
             continue
         if all(t.lower() in deny_list for t in tokens):

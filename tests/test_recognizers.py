@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import re
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from app.models.findings import EntityType, Finding
 from app.pipeline.detectors.recognizers.es_person import PERSON_DENY_LIST
@@ -172,12 +174,12 @@ class TestEsPersonConsecutiveRemoved:
     """Verify ES_PERSON_CONSECUTIVE pattern is no longer registered."""
 
     @pytest.mark.skipif(not PRESIDIO_AVAILABLE, reason="presidio not available")
-    def test_patterns_only_inverted(self):
+    def test_patterns_registered(self):
         from app.pipeline.detectors.recognizers.es_person import EsPersonRecognizer
 
         recognizer = EsPersonRecognizer(supported_language="es")
         pattern_names = [p.name for p in recognizer.patterns]
-        assert pattern_names == ["ES_PERSON_INVERTED"]
+        assert pattern_names == ["ES_PERSON_INVERTED", "ES_PERSON_STRUCTURED"]
 
 
 # ===========================================================================
@@ -333,3 +335,148 @@ class TestEsPersonInvertedRegex:
         # Should match "Cabeza Cruz, Pepe" but NOT include "Surne"
         assert match is not None
         assert "\n" not in match.group()
+
+
+# ===========================================================================
+# ES_DATE_OF_BIRTH regex — space separator
+# ===========================================================================
+
+# Regex duplicated from es_dob.py
+_DOB_PATTERN = r"\b\d{1,2}[/\-\.\s]\d{1,2}[/\-\.\s]\d{2,4}\b"
+
+
+class TestEsDobSpaceSeparator:
+    """Tests for DOB regex with space separator support."""
+
+    @pytest.fixture()
+    def pattern(self) -> re.Pattern[str]:
+        return re.compile(_DOB_PATTERN)
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "25 08 2005",
+            "1 1 90",
+            "25/08/2005",
+            "25-08-2005",
+            "25.08.2005",
+        ],
+    )
+    def test_valid_dates_match(self, pattern: re.Pattern[str], text: str):
+        assert pattern.search(text), f"Expected match for '{text}'"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "hello world",
+            "123456",
+            "",
+        ],
+    )
+    def test_invalid_dates_no_match(self, pattern: re.Pattern[str], text: str):
+        assert pattern.search(text) is None, f"Unexpected match in '{text}'"
+
+
+# ===========================================================================
+# ES_PERSON_STRUCTURED regex — label-value pattern from ID documents
+# ===========================================================================
+
+_PERSON_STRUCTURED = (
+    r"(?:APELLIDOS?|PRIMER\s+APELLIDO)"
+    r"[:\s]*\n\s*"
+    r"([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ\s]+)"
+    r"\n\s*"
+    r"NOMBRE[:\s]*\n\s*"
+    r"([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ\s]+)"
+)
+
+
+class TestEsPersonStructuredRegex:
+    """Tests for the ES_PERSON_STRUCTURED regex pattern."""
+
+    @pytest.fixture()
+    def pattern(self) -> re.Pattern[str]:
+        return re.compile(_PERSON_STRUCTURED)
+
+    def test_standard_dni_format(self, pattern: re.Pattern[str]):
+        text = "APELLIDOS\nCABEZA CRUZ\nNOMBRE\nPEPE"
+        match = pattern.search(text)
+        assert match is not None
+        assert match.group(1).strip() == "CABEZA CRUZ"
+        assert match.group(2).strip() == "PEPE"
+
+    def test_apellido_singular(self, pattern: re.Pattern[str]):
+        text = "APELLIDO\nGARCIA\nNOMBRE\nMARIA"
+        match = pattern.search(text)
+        assert match is not None
+
+    def test_primer_apellido_variant(self, pattern: re.Pattern[str]):
+        text = "PRIMER APELLIDO\nLOPEZ\nNOMBRE\nJUAN"
+        match = pattern.search(text)
+        assert match is not None
+
+    def test_with_colon_labels(self, pattern: re.Pattern[str]):
+        text = "APELLIDOS:\nCABEZA CRUZ\nNOMBRE:\nPEPE"
+        match = pattern.search(text)
+        assert match is not None
+
+    def test_no_labels_no_match(self, pattern: re.Pattern[str]):
+        text = "Juan Garcia Lopez"
+        assert pattern.search(text) is None
+
+    def test_only_apellidos_no_nombre_no_match(self, pattern: re.Pattern[str]):
+        text = "APELLIDOS\nCABEZA CRUZ"
+        assert pattern.search(text) is None
+
+
+# ===========================================================================
+# _enhance_for_ocr — image enhancement for OCR
+# ===========================================================================
+
+
+class TestEnhanceForOcr:
+    """Tests for the OCR image enhancement function."""
+
+    def test_output_is_grayscale(self):
+        from app.pipeline.extractors.image import _enhance_for_ocr
+
+        img = Image.new("RGB", (100, 80), color=(128, 128, 128))
+        result = _enhance_for_ocr(img)
+        assert result.mode in ("L", "P"), f"Expected grayscale, got {result.mode}"
+
+    def test_dimensions_preserved(self):
+        from app.pipeline.extractors.image import _enhance_for_ocr
+
+        img = Image.new("RGB", (200, 150), color=(64, 64, 64))
+        result = _enhance_for_ocr(img)
+        assert result.size == (200, 150)
+
+    def test_output_has_nonzero_pixels(self):
+        from app.pipeline.extractors.image import _enhance_for_ocr
+
+        img = Image.new("RGB", (100, 100), color=(100, 100, 100))
+        result = _enhance_for_ocr(img)
+        arr = np.array(result)
+        assert arr.sum() > 0, "Enhanced image has all-zero pixels"
+
+
+# ===========================================================================
+# YuNet score threshold configuration
+# ===========================================================================
+
+
+class TestYunetScoreThreshold:
+    """Tests for configurable YuNet face detection threshold."""
+
+    def test_default_threshold_is_0_7(self):
+        from app.config import Settings
+
+        s = Settings()
+        assert s.YUNET_SCORE_THRESHOLD == 0.7
+
+    def test_threshold_overridable_via_env(self, monkeypatch: pytest.MonkeyPatch):
+        from app.config import Settings
+
+        monkeypatch.setenv("SANIFLOW_YUNET_SCORE_THRESHOLD", "0.5")
+        s = Settings()
+        assert s.YUNET_SCORE_THRESHOLD == 0.5

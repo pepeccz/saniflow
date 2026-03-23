@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from io import BytesIO
 
+import cv2
+import numpy as np
 import pytesseract
 from PIL import Image
 
@@ -23,6 +25,20 @@ from app.models.extraction import (
 logger = logging.getLogger(__name__)
 
 
+def _enhance_for_ocr(img: Image.Image) -> Image.Image:
+    """Light enhancement for OCR — convert to grayscale only.
+
+    Previous aggressive CLAHE + unsharp-mask sharpening destroyed text
+    legibility on phone-camera photos of documents (e.g. DNI cards).
+    Tesseract performs its own internal binarisation, so heavy
+    preprocessing is counter-productive for most real-world inputs.
+    """
+    arr = np.array(img.convert("RGB"))
+    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY) if len(arr.shape) == 3 else arr
+
+    return Image.fromarray(gray)
+
+
 class ImageExtractor:
     """Extract text + coordinates from raster images via OCR.
 
@@ -33,11 +49,15 @@ class ImageExtractor:
         """Run pytesseract ``image_to_data`` on *file_content* and build a SpanMap."""
         image = Image.open(BytesIO(file_content))
 
+        # Enhance image for better OCR (grayscale + CLAHE + sharpening).
+        # The original file_content bytes are preserved for visual detection.
+        ocr_image = _enhance_for_ocr(image)
+
         # pytesseract.image_to_data returns a TSV-like structure with columns:
         #   level, page_num, block_num, par_num, line_num, word_num,
         #   left, top, width, height, conf, text
         data = pytesseract.image_to_data(
-            image,
+            ocr_image,
             lang=settings.TESSERACT_LANG,
             output_type=pytesseract.Output.DICT,
         )

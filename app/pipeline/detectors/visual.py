@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # ── Constants ────────────────────────────────────────────────────────
 
 _YUNET_INPUT_SIZE = (320, 320)
-_YUNET_SCORE_THRESHOLD = 0.9
+_YUNET_SCORE_THRESHOLD = settings.YUNET_SCORE_THRESHOLD
 _YUNET_NMS_THRESHOLD = 0.3
 _YUNET_TOP_K = 5000
 

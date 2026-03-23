@@ -59,6 +59,25 @@ class EsPersonRecognizer(PatternRecognizer):
             ),
             score=0.7,
         ),
+        # Structured label-value pattern from Spanish ID documents (DNI)
+        # Matches: APELLIDOS\n<surnames>\nNOMBRE\n<given names>
+        # Uses (?i) inline flag because _selective_title_case converts
+        # ALL-CAPS labels to title-case before Presidio analysis.
+        # Score set to 0.95 (above SpacyRecognizer's 0.85) so Presidio's
+        # deduplication keeps this tighter span over SpacyRecognizer's
+        # over-broad match on the same text region.
+        Pattern(
+            name="ES_PERSON_STRUCTURED",
+            regex=(
+                r"(?i)(?:APELLIDOS?|PRIMER\s+APELLIDO)"
+                r"[:\s]*\n\s*"
+                r"([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ\s]+)"
+                r"\n\s*"
+                r"NOMBRE[:\s]*\n\s*"
+                r"([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ\s]+)"
+            ),
+            score=0.95,
+        ),
     ]
 
     CONTEXT = [

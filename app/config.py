@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     # Models
     YUNET_MODEL_PATH: str = "/app/models/face_detection_yunet_2023mar.onnx"
+    YUNET_SCORE_THRESHOLD: float = 0.4
 
     # Temp storage
     TEMP_DIR: str = "/tmp/saniflow"
