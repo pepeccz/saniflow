@@ -27,6 +27,7 @@ class Settings(BaseSettings):
 
     # Sanitization defaults
     DEFAULT_LEVEL: str = "standard"
+    DEFAULT_REDACTION_STYLE: str = "black"
 
     # Confidence thresholds
     CONFIDENCE_THRESHOLD_REGEX: float = 0.7

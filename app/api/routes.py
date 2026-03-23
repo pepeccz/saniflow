@@ -22,6 +22,8 @@ from app.api.schemas import (
 )
 from app.config import settings
 from app.models.findings import (
+    EntityType,
+    RedactionStyle,
     ResponseFormat,
     SanitizationLevel,
     SanitizationResult,
@@ -84,6 +86,35 @@ def _validate_response_format(response_format: str) -> ResponseFormat:
         )
 
 
+def _validate_redaction_style(style: str) -> RedactionStyle:
+    """Raise 422 if style is not a valid RedactionStyle."""
+    try:
+        return RedactionStyle(style)
+    except ValueError:
+        valid = [e.value for e in RedactionStyle]
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid redaction style: '{style}'. Must be one of: {valid}",
+        )
+
+
+def _parse_redact_entities(entities: str) -> list[str] | None:
+    """Parse comma-separated entity types. Returns None if empty (= redact all)."""
+    if not entities or not entities.strip():
+        return None
+    names = [e.strip() for e in entities.split(",") if e.strip()]
+    if not names:
+        return None
+    valid_values = {et.value for et in EntityType}
+    for name in names:
+        if name not in valid_values:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid entity type: '{name}'. Must be one of: {sorted(valid_values)}",
+            )
+    return names
+
+
 def _build_findings_response(result: SanitizationResult) -> list[FindingResponse]:
     """Convert pipeline findings to API response models."""
     return [
@@ -93,6 +124,7 @@ def _build_findings_response(result: SanitizationResult) -> list[FindingResponse
             score=f.score,
             page=f.page,
             bbox=f.bbox,
+            redacted=f.redacted,
         )
         for f in result.findings
     ]
@@ -125,6 +157,8 @@ async def sanitize(
     file: UploadFile,
     level: str = Form(default="standard"),
     response_format: str = Form(default="file"),
+    redaction_style: str = Form(default="black"),
+    redact_entities: str = Form(default=""),
 ) -> StreamingResponse | SanitizeResponse | SanitizeFullResponse:
     """Sanitize a document by detecting and redacting PII.
 
@@ -135,6 +169,8 @@ async def sanitize(
     content_type = _validate_content_type(file.content_type)
     validated_level = _validate_level(level)
     validated_format = _validate_response_format(response_format)
+    validated_style = _validate_redaction_style(redaction_style)
+    parsed_entities = _parse_redact_entities(redact_entities)
 
     # Read file content and validate size
     file_content = await file.read()
@@ -152,6 +188,8 @@ async def sanitize(
             filename=filename,
             level=validated_level,
             response_format=validated_format,
+            redaction_style=validated_style,
+            redact_entities=parsed_entities,
         )
         processing_time_ms = int((time.monotonic() - start_time) * 1000)
         try:

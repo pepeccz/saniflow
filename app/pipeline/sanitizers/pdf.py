@@ -10,7 +10,7 @@ import logging
 
 import fitz  # PyMuPDF
 
-from app.models.findings import Finding
+from app.models.findings import EntityType, Finding, RedactionStyle
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,8 @@ class PdfSanitizer:
         file_content: bytes,
         findings: list[Finding],
         filename: str,
+        *,
+        style: RedactionStyle = RedactionStyle.BLACK,
     ) -> bytes:
         """Open the PDF, add redaction annotations, apply them, and return bytes.
 
@@ -45,6 +47,12 @@ class PdfSanitizer:
         doc = fitz.open(stream=file_content, filetype="pdf")
         page_count = len(doc)
         redaction_count = 0
+
+        # BLUR is not supported for PDFs — fall back to BLACK once.
+        effective_base_style = style
+        if effective_base_style == RedactionStyle.BLUR:
+            logger.warning("BLUR not supported for PDFs — falling back to BLACK")
+            effective_base_style = RedactionStyle.BLACK
 
         for finding in findings:
             if finding.page is None or finding.bbox is None:
@@ -73,9 +81,20 @@ class PdfSanitizer:
                 finding.bbox.y1,
             )
 
-            # add_redact_annot marks the area for redaction.
-            # fill=(0, 0, 0) fills with black after applying.
-            page.add_redact_annot(rect, fill=(0, 0, 0))
+            # Determine per-finding effective style.
+            effective_style = effective_base_style
+            if (
+                effective_style == RedactionStyle.PLACEHOLDER
+                and finding.entity_type in (EntityType.FACE, EntityType.SIGNATURE)
+            ):
+                effective_style = RedactionStyle.BLACK
+
+            if effective_style == RedactionStyle.PLACEHOLDER:
+                text = f"[{finding.entity_type.value}]"
+                page.add_redact_annot(rect, text=text, fill=(1, 1, 1), text_color=(0, 0, 0))
+            else:
+                page.add_redact_annot(rect, fill=(0, 0, 0))
+
             redaction_count += 1
 
         # Apply all redaction annotations — this PERMANENTLY removes

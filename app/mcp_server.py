@@ -15,6 +15,7 @@ from app.audit import log_sanitization
 from app.config import settings
 from app.models.findings import (
     EntityType,
+    RedactionStyle,
     ResponseFormat,
     SanitizationLevel,
 )
@@ -64,6 +65,27 @@ def _parse_format(fmt: str) -> ResponseFormat:
         return ResponseFormat.FILE
 
 
+def _parse_style(style: str) -> RedactionStyle:
+    try:
+        return RedactionStyle(style)
+    except ValueError:
+        return RedactionStyle.BLACK
+
+
+def _parse_redact_entities(entities: str) -> list[str] | None:
+    """Parse comma-separated entity types. Returns None if empty (= redact all)."""
+    if not entities or not entities.strip():
+        return None
+    names = [e.strip() for e in entities.split(",") if e.strip()]
+    if not names:
+        return None
+    valid_values = {et.value for et in EntityType}
+    invalid = [n for n in names if n not in valid_values]
+    if invalid:
+        return None  # silently ignore invalid — use all entities
+    return names
+
+
 def _findings_to_dicts(result) -> list[dict]:
     """Convert Finding objects to serialisable dicts."""
     return [f.model_dump(exclude_none=True) for f in result.findings]
@@ -74,9 +96,15 @@ def _run_pipeline(
     filename: str,
     level: SanitizationLevel,
     fmt: ResponseFormat,
+    redaction_style: RedactionStyle = RedactionStyle.BLACK,
+    redact_entities: list[str] | None = None,
 ):
     """Synchronous pipeline call — meant to be wrapped in ``asyncio.to_thread()``."""
-    return pipeline.process(content, filename, level, fmt)
+    return pipeline.process(
+        content, filename, level, fmt,
+        redaction_style=redaction_style,
+        redact_entities=redact_entities,
+    )
 
 
 # ── Tools ────────────────────────────────────────────────────────────
@@ -87,6 +115,8 @@ async def sanitize_file(
     file_path: str,
     level: str = "standard",
     response_format: str = "file",
+    redaction_style: str = "black",
+    redact_entities: str = "",
 ) -> dict:
     """Sanitize a document by detecting and redacting PII.
 
@@ -94,6 +124,8 @@ async def sanitize_file(
         file_path: Absolute path to the file (PDF, JPEG, or PNG).
         level: "standard" (text PII) or "strict" (text + visual PII like faces/signatures).
         response_format: "file" returns sanitized file path + findings, "json" returns findings only, "full" returns both.
+        redaction_style: "black" (default), "blur" (images only), or "placeholder" (shows entity type label).
+        redact_entities: Comma-separated entity types to redact (e.g. "PERSON_NAME,EMAIL"). Empty = all.
     """
     path = Path(file_path)
     if err := _validate_file(path):
@@ -101,12 +133,15 @@ async def sanitize_file(
 
     san_level = _parse_level(level)
     fmt = _parse_format(response_format)
+    san_style = _parse_style(redaction_style)
+    parsed_entities = _parse_redact_entities(redact_entities)
     file_content = path.read_bytes()
 
     start_time = time.monotonic()
     try:
         result = await asyncio.to_thread(
-            _run_pipeline, file_content, path.name, san_level, fmt
+            _run_pipeline, file_content, path.name, san_level, fmt,
+            san_style, parsed_entities,
         )
         processing_time_ms = int((time.monotonic() - start_time) * 1000)
         try:
@@ -157,6 +192,8 @@ async def sanitize_base64(
     content: str,
     filename: str,
     level: str = "standard",
+    redaction_style: str = "black",
+    redact_entities: str = "",
 ) -> dict:
     """Sanitize base64-encoded file content. Use when the file is not on the local filesystem.
 
@@ -164,6 +201,8 @@ async def sanitize_base64(
         content: Base64-encoded file content.
         filename: Original filename with extension (e.g. "report.pdf").
         level: "standard" or "strict".
+        redaction_style: "black" (default), "blur" (images only), or "placeholder" (shows entity type label).
+        redact_entities: Comma-separated entity types to redact (e.g. "PERSON_NAME,EMAIL"). Empty = all.
     """
     try:
         file_bytes = base64.b64decode(content)
@@ -171,11 +210,14 @@ async def sanitize_base64(
         return {"error": "Invalid base64 content"}
 
     san_level = _parse_level(level)
+    san_style = _parse_style(redaction_style)
+    parsed_entities = _parse_redact_entities(redact_entities)
 
     start_time = time.monotonic()
     try:
         result = await asyncio.to_thread(
-            _run_pipeline, file_bytes, filename, san_level, ResponseFormat.FILE
+            _run_pipeline, file_bytes, filename, san_level, ResponseFormat.FILE,
+            san_style, parsed_entities,
         )
         processing_time_ms = int((time.monotonic() - start_time) * 1000)
         try:
@@ -297,6 +339,7 @@ async def get_config() -> str:
             "max_file_size_bytes": settings.MAX_FILE_SIZE,
             "sanitization_levels": [lv.value for lv in SanitizationLevel],
             "response_formats": [rf.value for rf in ResponseFormat],
+            "redaction_styles": [rs.value for rs in RedactionStyle],
             "entity_types": [et.value for et in EntityType],
             "confidence_thresholds": {
                 "regex": settings.CONFIDENCE_THRESHOLD_REGEX,

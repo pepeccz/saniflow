@@ -20,6 +20,12 @@ class EntityType(str, Enum):
     SIGNATURE = "SIGNATURE"
 
 
+class RedactionStyle(str, Enum):
+    BLACK = "black"
+    BLUR = "blur"
+    PLACEHOLDER = "placeholder"
+
+
 class ResponseFormat(str, Enum):
     FILE = "file"
     JSON = "json"
@@ -43,6 +49,7 @@ class Finding(BaseModel):
     score: float
     page: int | None = None
     bbox: BBox | None = None
+    redacted: bool = True
 
 
 class FindingSummary(BaseModel):

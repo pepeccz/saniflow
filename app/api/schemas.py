@@ -11,6 +11,7 @@ class FindingResponse(BaseModel):
     score: float
     page: int | None = None
     bbox: BBox | None = None
+    redacted: bool = True
 
 
 class SanitizeResponse(BaseModel):

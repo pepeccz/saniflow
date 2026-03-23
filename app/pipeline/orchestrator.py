@@ -13,6 +13,7 @@ from pathlib import Path
 from app.models.findings import (
     Finding,
     FindingSummary,
+    RedactionStyle,
     ResponseFormat,
     SanitizationLevel,
     SanitizationResult,
@@ -82,6 +83,8 @@ class SanitizationPipeline:
         filename: str,
         level: SanitizationLevel = SanitizationLevel.STANDARD,
         response_format: ResponseFormat = ResponseFormat.FILE,
+        redaction_style: RedactionStyle = RedactionStyle.BLACK,
+        redact_entities: list[str] | None = None,
     ) -> SanitizationResult:
         """Run the full sanitization pipeline on *file_content*.
 
@@ -136,9 +139,22 @@ class SanitizationPipeline:
             len(findings) - len(text_findings),
         )
 
+        # ── Step 2.5: Filter entities ─────────────────────────────────
+        if redact_entities:
+            redact_set = set(redact_entities)
+            for f in findings:
+                f.redacted = f.entity_type.value in redact_set
+        else:
+            for f in findings:
+                f.redacted = True
+
+        findings_to_redact = [f for f in findings if f.redacted]
+
         # ── Step 3: Sanitize ──────────────────────────────────────────
         sanitizer = self._pdf_sanitizer if is_pdf else self._image_sanitizer
-        sanitized_bytes = sanitizer.sanitize(file_content, findings, filename)
+        sanitized_bytes = sanitizer.sanitize(
+            file_content, findings_to_redact, filename, style=redaction_style,
+        )
 
         # ── Step 4: Build result ──────────────────────────────────────
         summary = self._build_summary(findings, level)
