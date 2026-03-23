@@ -1,6 +1,6 @@
 # PRD: Saniflow
 
-> **The open-source sanitization layer between your documents and AI.**
+> **The sanitization layer between your documents and AI — detect, redact, and forget.**
 
 **Version**: 0.1.0-draft
 **Author**: Gentleman Programming
@@ -11,85 +11,70 @@
 
 ## 1. Problem Statement
 
-The AI revolution has a blind spot: **data leakage**.
+The AI era has created a blind spot in data privacy. Every day, companies upload contracts, invoices, medical records, and ID documents to AI models — GPT, Claude, Gemini, internal LLMs — without removing personally identifiable information (PII) first. The document goes in with names, DNIs, IBANs, faces, and signatures. The AI processes it. The data is now outside the company's control.
 
-Every day, companies feed documents into AI models — contracts, invoices, medical records, identity documents — without removing the personally identifiable information (PII) they contain. The document goes into a language model, and suddenly a person's DNI, home address, bank account number, and face are sitting in a third-party system with no guarantees about retention or access.
+**The real problem is threefold:**
 
-**The risks are concrete:**
+1. **Regulatory exposure.** GDPR (Art. 5, 6, 9), LOPD-GDD, and sector-specific regulations (healthcare, finance) impose strict obligations on PII processing. Sending unsanitized documents to third-party AI services is, in many cases, a data breach by definition. Fines under GDPR reach 4% of global annual revenue or EUR 20M.
 
-- **Legal**: GDPR fines up to 4% of global annual turnover or EUR 20M (whichever is higher). Spain's AEPD has issued fines exceeding EUR 1M for PII mishandling.
-- **Financial**: Average cost of a data breach in 2025: USD 4.88M (IBM Cost of a Data Breach Report). Document-sourced leaks are among the hardest to trace and remediate.
-- **Reputational**: A single leaked client document can destroy years of trust. Law firms, healthcare providers, and financial institutions face existential risk.
-- **Compliance**: SOC 2, HIPAA, and ISO 27001 audits increasingly ask: "How do you sanitize documents before sending them to AI providers?"
+2. **No practical tooling exists.** Current solutions fall into three inadequate categories:
+   - **Manual redaction** (Adobe Acrobat, PDF editors): slow, error-prone, does not scale to AI pipelines.
+   - **Cloud PII detection** (AWS Comprehend, Google DLP): identifies PII but does not sanitize documents. Requires sending data to yet another cloud service — defeating the purpose.
+   - **Visual overlays**: many tools draw black rectangles over PII but leave the underlying text intact. A simple copy-paste or text extraction recovers everything. This is security theater, not redaction.
 
-**Current solutions fail in different ways:**
+3. **AI pipelines have no sanitization step.** Modern AI workflows — RAG systems, document Q&A, automated analysis — lack a standardized "sanitize before sending" middleware. The result: PII leaks at scale, silently.
 
-| Approach | Problem |
-|----------|---------|
-| Manual redaction (Adobe, etc.) | Slow, expensive, error-prone, does not scale |
-| Visual overlays (black rectangles) | **Fake security** — underlying text is still extractable from the PDF |
-| Cloud-based DLP (AWS Comprehend, Google DLP) | Sends your PII to yet another cloud service to detect PII. Ironic. |
-| Microsoft Presidio (library) | Detection only — no API, no document handling, no redaction pipeline |
-| "Don't send documents to AI" | Unrealistic. The productivity gains are too significant. |
+**When PII leaks through:**
+- Legal: regulatory fines, lawsuits, mandatory breach notifications
+- Financial: remediation costs, lost contracts, insurance claims
+- Reputational: customer trust erosion, public disclosure requirements
+- Operational: incident response, forensic analysis, policy overhaul
 
-Saniflow exists because **the problem is not AI — the problem is sending unsanitized documents to AI.**
+Saniflow exists because this problem is not theoretical — it is happening today in every company that uses AI on documents.
 
 ---
 
 ## 2. Vision
 
-Saniflow becomes the **standard sanitization layer** between documents and any external system — AI models, third-party APIs, cloud storage, or human recipients.
+**Saniflow becomes the standard sanitization layer between documents and AI.**
+
+It sits at the boundary — after your application receives a document and before that document reaches any AI model, third-party API, or external system. Documents go in dirty; they come out clean. No PII leaves the perimeter.
 
 ### Before Saniflow
 
 ```
-Company → uploads contract.pdf → ChatGPT / Claude / Gemini
-          (contains: client name, DNI, address, IBAN, face photo)
-          Result: PII is now in a third-party system. Compliance violation.
+User uploads contract.pdf
+  → Your app sends it to GPT-4 for summarization
+  → GPT-4 processes: names, DNIs, IBANs, addresses, faces in photos
+  → PII is now in OpenAI's infrastructure
+  → You are in violation of GDPR Article 5(1)(c)
 ```
 
 ### After Saniflow
 
 ```
-Company → uploads contract.pdf → Saniflow API → sanitized_contract.pdf → AI model
-          (PII detected and permanently removed)
-          Result: AI processes the document. No PII leaves the perimeter.
+User uploads contract.pdf
+  → Your app sends it to Saniflow (self-hosted, local)
+  → Saniflow detects 12 PII entities, redacts all of them
+  → Your app sends contract_sanitized.pdf to GPT-4
+  → GPT-4 processes: [REDACTED], no PII exposed
+  → Compliance maintained, zero data leakage
 ```
 
-### The MCP Server Vision
+### The MCP Vision
 
-Saniflow's ultimate form is an **MCP (Model Context Protocol) server** that AI tools consume natively. Instead of humans remembering to sanitize before uploading, the AI tool's pipeline automatically routes documents through Saniflow:
-
-```
-AI Tool → needs to read document → MCP call to Saniflow → receives sanitized content → processes safely
-```
-
-This makes sanitization invisible, automatic, and impossible to bypass.
+Saniflow's roadmap includes an **MCP (Model Context Protocol) server**. AI tools — coding assistants, document analyzers, RAG pipelines — will consume only pre-sanitized content through a standard protocol. The AI never sees raw PII. This is not an afterthought; it is the end state: **AI-native sanitization as a service**.
 
 ---
 
 ## 3. Target Users
 
-### Primary: Companies Using AI with Document Workflows
-
-- Legal firms processing contracts through AI for review or summarization
-- Healthcare organizations digitizing patient records
-- Financial institutions running compliance checks via AI
-- HR departments processing CVs and employee documents
-- Any company with a "send to AI" button in their workflow
-
-### Secondary: Developers Building AI Pipelines
-
-- Engineers building RAG (Retrieval-Augmented Generation) systems that ingest documents
-- Teams building AI agents that need to read files from company repositories
-- MLOps engineers preprocessing training data to remove PII
-- Compliance-focused developers who need a sanitization step in their CI/CD
-
-### Tertiary: Individual Professionals
-
-- Freelancers handling client documents who need to share sanitized versions
-- Consultants who process third-party documents and need to strip identifying information
-- Researchers working with sensitive datasets
+| Segment | Description | Pain Point | Saniflow Value |
+|---------|-------------|------------|----------------|
+| **Primary**: Companies using AI on documents | Legal firms, consultancies, HR departments, healthcare, finance | Sending contracts/reports/records to AI models with PII intact | Drop-in API that sanitizes before AI processing |
+| **Secondary**: Developers building AI pipelines | Backend engineers, ML engineers, platform teams | No sanitization middleware exists for their RAG/LLM pipelines | Single API call integrates into any pipeline |
+| **Secondary**: Compliance teams | DPOs, legal, security officers | Cannot verify that documents are sanitized before external sharing | JSON findings report as audit evidence |
+| **Tertiary**: Freelancers & individuals | Consultants handling client documents | Need to share documents without exposing client PII | Simple upload-and-download workflow |
 
 ---
 
@@ -97,22 +82,26 @@ This makes sanitization invisible, automatic, and impossible to bypass.
 
 ### Current MVP
 
-| R-ID | Type | Formats | Detection | Redaction | Priority |
-|------|------|---------|-----------|-----------|----------|
-| R-FMT-01 | PDF | `.pdf` (native text) | Text PII via Presidio + SpanMap coordinate resolution | Real redaction via PyMuPDF `add_redact_annot` + `apply_redactions` | P0 |
-| R-FMT-02 | PDF (scanned) | `.pdf` (image-based pages) | OCR via `get_textpage_ocr(language="spa")` then Presidio | Same as native PDF | P0 |
-| R-FMT-03 | Images | `.jpg`, `.jpeg`, `.png` | OCR via pytesseract `image_to_data` for text; OpenCV for faces | Black rectangle fill via Pillow/OpenCV | P0 |
+| Type | Formats | MIME Types | Priority | Notes |
+|------|---------|------------|----------|-------|
+| PDF | `.pdf` (native text + scanned) | `application/pdf` | P0 | Real redaction via PyMuPDF; OCR fallback for scanned pages |
+| Images | `.jpg`, `.jpeg`, `.png` | `image/jpeg`, `image/png` | P0 | OCR for text extraction; pixel-level redaction |
+
+**[R-DOC-01]** The system MUST accept PDF, JPEG, and PNG files.
+**[R-DOC-02]** The system MUST reject unsupported formats with HTTP 415.
+**[R-DOC-03]** The system MUST enforce a configurable max file size (default: 20 MB) and reject oversized files with HTTP 413.
+**[R-DOC-04]** The system MUST validate file integrity and reject corrupted files with HTTP 422.
 
 ### Future Formats
 
-| R-ID | Type | Formats | Priority | Notes |
-|------|------|---------|----------|-------|
-| R-FMT-04 | Word | `.docx` | P1 | python-docx extraction, XML-level redaction |
-| R-FMT-05 | Excel | `.xlsx` | P1 | Cell-level PII detection and replacement |
-| R-FMT-06 | Plain text | `.txt`, `.csv` | P1 | Direct text processing, simplest pipeline |
-| R-FMT-07 | Email | `.eml`, `.msg` | P2 | Header + body + attachment sanitization |
-| R-FMT-08 | Presentations | `.pptx` | P2 | Slide text + embedded images |
-| R-FMT-09 | HTML | `.html` | P3 | DOM-aware redaction |
+| Type | Formats | Priority | Rationale |
+|------|---------|----------|-----------|
+| Word | `.docx` | P1 | Most common business document format after PDF |
+| Excel | `.xlsx` | P1 | Financial data, HR spreadsheets |
+| Plain text | `.txt`, `.csv` | P1 | Simple extraction, high demand in data pipelines |
+| Email | `.eml`, `.msg` | P2 | Corporate communications with PII |
+| Presentations | `.pptx` | P2 | Embedded text and images |
+| HTML | `.html` | P3 | Web content sanitization |
 
 ---
 
@@ -120,82 +109,83 @@ This makes sanitization invisible, automatic, and impossible to bypass.
 
 ### 5.1 Text-Based PII Detection
 
-All text PII detection is powered by **Presidio Analyzer** with a **spaCy `es_core_news_md`** NLP backend, configured for Spanish language processing.
+| Entity Type | ID | Detection Method | Confidence | Example Patterns | Level |
+|-------------|-----|-----------------|------------|------------------|-------|
+| Person name | `PERSON_NAME` | spaCy `es_core_news_md` NER via Presidio | Medium (0.5-0.85) | "Juan Garcia Lopez", "Maria Fernandez" | Standard |
+| DNI | `DNI_NIE` | Presidio `EsNifRecognizer` (regex + checksum) | High (0.9+) | `12345678Z`, `00000000T` | Standard |
+| NIE | `DNI_NIE` | Presidio `EsNieRecognizer` (regex + checksum) | High (0.9+) | `X1234567L`, `Y0000000Z` | Standard |
+| Email | `EMAIL` | Presidio `EmailRecognizer` + Spanish context words | High (0.9+) | `juan@empresa.com` | Standard |
+| Phone | `PHONE` | Custom `EsPhoneRecognizer` (regex) | High (0.7+) | `+34 612 345 678`, `912 345 678` | Standard |
+| IBAN | `IBAN` | Presidio `IbanRecognizer` (pattern + checksum) | High (0.9+) | `ES91 2100 0418 4502 0005 1332` | Standard |
+| Address | `ADDRESS` | Custom `EsAddressRecognizer` (regex + context) | Low (0.4-0.6) | `Calle Mayor 15, 28001 Madrid` | Standard |
 
-| R-ID | Entity Type | Presidio Recognizer | Detection Method | Confidence | Example | Level |
-|------|-------------|---------------------|------------------|------------|---------|-------|
-| R-DET-01 | `PERSON_NAME` | `SpacyRecognizer` | spaCy NER (`es_core_news_md`) | 0.5 - 0.85 | "Juan Garcia Lopez" | standard |
-| R-DET-02 | `DNI_NIE` (DNI) | `EsNifRecognizer` (built-in) | Regex + checksum validation | 0.9+ | "12345678Z" | standard |
-| R-DET-03 | `DNI_NIE` (NIE) | `EsNieRecognizer` (built-in) | Regex + checksum validation | 0.9+ | "X1234567L" | standard |
-| R-DET-04 | `EMAIL` | `EmailRecognizer` (built-in) | Regex pattern | 0.9+ | "juan@example.com" | standard |
-| R-DET-05 | `PHONE` | `EsPhoneRecognizer` (custom) | Regex: `+34 6XX/9XX XXX XXX` variants | 0.7+ | "+34 612 345 678" | standard |
-| R-DET-06 | `IBAN` | `IbanRecognizer` (built-in) | Regex + checksum validation | 0.9+ | "ES91 2100 0418 4502 0005 1332" | standard |
-| R-DET-07 | `ADDRESS` | `EsAddressRecognizer` (custom) | Regex for Spanish patterns + context words | 0.4 - 0.6 | "Calle Mayor 15, 28001 Madrid" | strict |
-
-**Custom recognizer details:**
-
-- **`EsPhoneRecognizer`**: Handles international format (`+34 6XX XXX XXX`), local format (`612345678`), and common separators (spaces, dots, hyphens). Context words: "telefono", "movil", "llamar", "contacto", "tel".
-- **`EsAddressRecognizer`**: Matches patterns starting with street type prefixes (`Calle`, `C/`, `Av.`, `Avda.`, `Plaza`, `Pza.`, `Paseo`) followed by street name, number, and optional postal code. Context words: "direccion", "domicilio", "residencia", "vive en". Low confidence due to high variability in Spanish address formats.
+**[R-DET-01]** The system MUST detect all entity types listed above when processing in `standard` or `strict` level.
+**[R-DET-02]** Detection confidence MUST be included in every finding as a float between 0.0 and 1.0.
+**[R-DET-03]** Custom recognizers for Spanish phone numbers and addresses MUST use configurable confidence thresholds (default: 0.7 regex, 0.5 NER).
 
 ### 5.2 Visual PII Detection
 
-Visual detection runs only in **strict** mode.
+| Entity Type | ID | Detection Method | Confidence | Level | Status |
+|-------------|-----|-----------------|------------|-------|--------|
+| Face | `FACE` | OpenCV YuNet (`FaceDetectorYN`) | High (0.9+ threshold) | Strict | Stable |
+| Signature | `SIGNATURE` | Connected component analysis heuristic | Low-Medium (0.5-0.7) | Strict | Experimental |
 
-| R-ID | Entity Type | Technology | Model | Confidence Threshold | Description |
-|------|-------------|------------|-------|---------------------|-------------|
-| R-DET-08 | `FACE` | OpenCV `FaceDetectorYN` | YuNet (`face_detection_yunet_2023mar.onnx`, 340KB) | 0.9 | Detects frontal and angled faces, partial occlusion. Returns bbox + 5 landmarks. ~5ms per 320x320 frame. |
-| R-DET-09 | `SIGNATURE` | OpenCV connected component analysis | Heuristic (no model) | N/A | **Experimental.** Grayscale → threshold → invert → filter by component size and aspect ratio. Moderate accuracy (~70-80%), false positives with stamps and handwritten notes. |
+**[R-VIS-01]** Face detection MUST use OpenCV YuNet with a configurable confidence threshold (default: 0.9).
+**[R-VIS-02]** Visual PII detection MUST only execute when `level=strict`.
+**[R-VIS-03]** Signature detection SHOULD be marked as experimental in documentation and API responses.
 
 ### 5.3 Detection Accuracy Expectations
 
-| Entity Type | Expected Recall | Expected Precision | Confidence | Notes |
-|-------------|----------------|-------------------|------------|-------|
-| `DNI_NIE` | > 95% | > 99% | HIGH | Checksum validation makes this very reliable |
-| `EMAIL` | > 95% | > 99% | HIGH | Pattern-based, well-defined format |
-| `IBAN` | > 95% | > 99% | HIGH | Checksum validation |
-| `PHONE` | > 85% | > 90% | HIGH | Custom regex covers common Spanish formats |
-| `PERSON_NAME` | ~70-80% | ~75% | MEDIUM | spaCy `es_core_news_md` is decent but not perfect for all Spanish names |
-| `ADDRESS` | ~50-60% | ~60% | LOW | Addresses are highly variable; regex cannot cover all patterns |
-| `FACE` | > 85% | > 90% | HIGH | YuNet is mature and well-tested |
-| `SIGNATURE` | ~60-70% | ~50-60% | LOW | Heuristic approach; experimental |
+| Entity Type | Expected Recall | Expected Precision | Notes |
+|-------------|----------------|-------------------|-------|
+| DNI/NIE | >98% | >99% | Checksum validation makes this highly reliable |
+| IBAN | >98% | >99% | Pattern + checksum |
+| Email | >95% | >98% | Well-defined pattern |
+| Phone (Spanish) | >90% | >85% | Custom regex covers common formats; uncommon formats may be missed |
+| Person name | >70% | >60% | `es_core_news_md` has moderate NER accuracy; context-dependent |
+| Address | >50% | >40% | Highly variable format; regex covers common patterns only |
+| Face | >85% | >90% | YuNet is mature; struggles with very small or heavily occluded faces |
+| Signature | >60% | >50% | Heuristic approach; false positives with stamps, logos, handwriting |
+
+These are honest estimates. Person names and addresses are the weakest detection categories due to the inherent complexity of Spanish NER and address variability.
 
 ---
 
 ## 6. Sanitization Levels
 
-### 6.1 Standard Level (R-LVL-01)
+### 6.1 Standard Level
 
-**Default.** Detects and redacts text-based PII only.
+**[R-LVL-01]** Default level. Detects and redacts all text-based PII.
 
-**What it covers:** PERSON_NAME, DNI_NIE, EMAIL, PHONE, IBAN
+| Detects | Does NOT Detect |
+|---------|-----------------|
+| Person names | Faces in photographs |
+| DNI/NIE | Signatures |
+| Email addresses | |
+| Phone numbers | |
+| IBANs | |
+| Addresses | |
 
-**What it does NOT cover:** ADDRESS (too many false positives at this level), FACE, SIGNATURE
+**Use cases:** General document sanitization, AI pipeline preprocessing, sharing documents externally where photos are expected to remain.
 
-**Use cases:**
-- Routine document processing where visual content is not sensitive
-- High-throughput pipelines where false positives must be minimized
-- Documents without photographs or handwritten content
+### 6.2 Strict Level
 
-### 6.2 Strict Level (R-LVL-02)
+**[R-LVL-02]** Everything in standard, plus visual PII detection.
 
-**Everything in standard, plus visual PII and address detection.**
+| Detects (additional) | Method |
+|----------------------|--------|
+| Faces in photographs/images | YuNet face detector |
+| Handwritten signatures | Connected component analysis |
 
-**Additional coverage:** ADDRESS, FACE, SIGNATURE
-
-**Use cases:**
-- Identity documents (DNI scans, passports) with photographs
-- Contracts with signatures
-- Any document where visual identification is a concern
-- Maximum compliance scenarios
+**Use cases:** Maximum privacy — identity documents (DNI scans, passports), HR records with employee photos, contracts with signatures, medical records.
 
 ### 6.3 Future Levels
 
 | Level | Description | Priority |
 |-------|-------------|----------|
-| **Custom** | Configurable per-entity rules: choose which entity types to detect, set custom confidence thresholds | P2 |
-| **GDPR** | Preset that detects all GDPR-relevant personal data categories | P3 |
-| **HIPAA** | Preset for the 18 HIPAA Safe Harbor identifiers | P3 |
-| **Enterprise** | Company-defined policies: custom entity types, whitelists, mandatory redaction zones | P4 |
+| **Custom** | User-configurable per-entity rules (e.g., "redact names and IBANs, skip addresses") | P2 |
+| **Compliance** | GDPR or HIPAA presets with legally mandated entity coverage | P3 |
+| **Enterprise** | Company-specific policies with custom entity types and thresholds | P4 |
 
 ---
 
@@ -203,13 +193,13 @@ Visual detection runs only in **strict** mode.
 
 ### 7.1 Current API (MVP)
 
-Base URL: `http://localhost:8000`
+Base URL: `http://localhost:8000` (Docker Compose maps host port 8010 to container port 8000)
 
 #### `POST /api/v1/sanitize`
 
 Sanitize a document by detecting and redacting PII.
 
-**Request:** `multipart/form-data`
+**Parameters** (multipart form data):
 
 | Parameter | Type | Default | Required | Description |
 |-----------|------|---------|----------|-------------|
@@ -217,15 +207,15 @@ Sanitize a document by detecting and redacting PII.
 | `level` | string | `standard` | No | Sanitization level: `standard` or `strict` |
 | `response_format` | string | `file` | No | Response format: `file`, `json`, or `full` |
 
-**Response formats:**
+**Response Formats:**
 
 | Format | Content-Type | Description |
 |--------|-------------|-------------|
-| `file` | Same as input (`application/pdf`, `image/jpeg`, `image/png`) | Sanitized file as binary download. Findings in `X-Saniflow-Findings` response header as JSON. |
-| `json` | `application/json` | Findings and summary only (no file content). |
-| `full` | `application/json` | Findings, summary, and sanitized file as base64-encoded string in `file` field. |
+| `file` | `application/pdf`, `image/jpeg`, `image/png` | Binary download of sanitized file. Findings included in `X-Saniflow-Findings` response header as JSON. |
+| `json` | `application/json` | Findings and summary only, no file content. |
+| `full` | `application/json` | Findings, summary, and the sanitized file as a base64-encoded string. |
 
-**Example: Sanitize a PDF and get the redacted file**
+**Example: Sanitize a PDF and get the file back**
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/sanitize \
@@ -235,13 +225,22 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
   -o contract_sanitized.pdf
 ```
 
-**Example: Get findings as JSON (strict mode)**
+**Example: Get findings as JSON**
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/sanitize \
-  -F "file=@document.pdf" \
+  -F "file=@contract.pdf" \
   -F "level=strict" \
   -F "response_format=json"
+```
+
+**Example: Get both (file as base64 + findings)**
+
+```bash
+curl -X POST http://localhost:8000/api/v1/sanitize \
+  -F "file=@photo.jpg" \
+  -F "level=strict" \
+  -F "response_format=full"
 ```
 
 **JSON response shape** (`json` and `full` formats):
@@ -280,29 +279,24 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
 }
 ```
 
-The `file` field is only present in `full` format. Fields `original_text`, `page`, and `bbox` may be `null` depending on the entity type and detection source.
+The `file` field is only present in `full` format. Fields `original_text`, `page`, and `bbox` may be `null` depending on entity type.
 
-**Example: Sanitize an image with full response**
-
-```bash
-curl -X POST http://localhost:8000/api/v1/sanitize \
-  -F "file=@photo.jpg" \
-  -F "level=strict" \
-  -F "response_format=full"
-```
-
-**Error responses:**
+**Error Responses:**
 
 | Status | Condition | Response Body |
 |--------|-----------|---------------|
-| 413 | File exceeds max size (default 20 MB) | `{"detail": "File exceeds maximum size of 20 MB"}` |
-| 415 | Unsupported MIME type | `{"detail": "Unsupported file type: application/msword"}` |
+| 413 | File exceeds max size | `{"detail": "File exceeds maximum size of 20 MB"}` |
+| 415 | Unsupported file type | `{"detail": "Unsupported file type: application/msword"}` |
 | 422 | Invalid level, format, or corrupted file | `{"detail": "File is corrupted or unreadable"}` |
 | 500 | Internal processing error | `{"detail": "Internal processing error"}` |
 
+**[R-API-01]** The sanitize endpoint MUST accept multipart form data with the parameters above.
+**[R-API-02]** The `file` response format MUST include findings in the `X-Saniflow-Findings` response header.
+**[R-API-03]** Error responses MUST NOT leak internal details (stack traces, file paths, library names).
+
 #### `GET /api/v1/health`
 
-Returns service health status.
+Returns service status.
 
 ```bash
 curl http://localhost:8000/api/v1/health
@@ -312,15 +306,18 @@ curl http://localhost:8000/api/v1/health
 {"status": "healthy", "version": "0.1.0"}
 ```
 
+**[R-API-04]** Health endpoint MUST return HTTP 200 with status and version.
+
 ### 7.2 Future API Endpoints
 
-| R-ID | Endpoint | Method | Description | Priority |
-|------|----------|--------|-------------|----------|
-| R-API-01 | `/api/v1/sanitize/batch` | POST | Accept multiple files in a single request, return results as ZIP or JSON array | P2 |
-| R-API-02 | `/api/v1/jobs/{id}` | GET | Check status of async sanitization jobs (for large files or batch processing) | P2 |
-| R-API-03 | `/api/v1/policies` | CRUD | Create, read, update, delete custom sanitization policies (entity selection, thresholds) | P3 |
-| R-API-04 | `/api/v1/audit` | GET | Query audit trail of past sanitization operations (requires persistence layer) | P3 |
-| R-API-05 | `/api/v1/ws/sanitize` | WebSocket | Real-time progress for large file processing: extraction %, detection %, sanitization % | P4 |
+| Endpoint | Method | Priority | Description |
+|----------|--------|----------|-------------|
+| `/api/v1/sanitize/batch` | POST | P2 | Accept multiple files in one request |
+| `/api/v1/jobs/{id}` | GET | P2 | Poll async job status for large files |
+| `/api/v1/policies` | CRUD | P3 | Create/manage sanitization policies |
+| `/api/v1/policies/{id}/sanitize` | POST | P3 | Sanitize using a specific policy |
+| `/api/v1/audit` | GET | P3 | Query processing audit trail |
+| `/api/v1/ws/sanitize` | WebSocket | P4 | Real-time streaming progress for large documents |
 
 ---
 
@@ -329,131 +326,106 @@ curl http://localhost:8000/api/v1/health
 ### 8.1 Pipeline Architecture
 
 ```
-                    ┌──────────┐
-                    │  Upload   │  Client sends file via multipart/form-data
-                    └────┬─────┘
-                         │
-                         ▼
-                    ┌──────────┐
-                    │ Validate  │  Check MIME type, file size, file integrity
-                    └────┬─────┘
-                         │
-                         ▼
-                 ┌───────────────┐
-                 │  Orchestrator  │  Resolve file type → select extractor/sanitizer chain
-                 └───────┬───────┘
-                         │
-              ┌──────────┼──────────┐
-              ▼          ▼          ▼
-         ┌─────────┐ ┌────────┐ ┌──────────┐
-         │ Extract  │ │ Detect │ │ Sanitize │
-         │ (text +  │ │ (PII)  │ │ (redact) │
-         │ coords)  │ │        │ │          │
-         └─────────┘ └────────┘ └──────────┘
-              │          │          │
-              ▼          ▼          ▼
-         SpanMap    Findings    Sanitized
-         built     generated   bytes out
+┌──────────┐    ┌───────────┐    ┌──────────┐    ┌───────────┐    ┌──────────┐
+│  Upload   │───>│  Extract   │───>│  Detect   │───>│ Sanitize  │───>│  Output   │
+│           │    │            │    │           │    │           │    │           │
+│ Validate  │    │ Text+Imgs  │    │ Text PII  │    │ Real      │    │ File /    │
+│ file type │    │ SpanMap    │    │ Visual PII│    │ redaction │    │ JSON /    │
+│ file size │    │ OCR if     │    │ (strict)  │    │ Content   │    │ Full      │
+│           │    │ scanned    │    │           │    │ removal   │    │           │
+└──────────┘    └───────────┘    └──────────┘    └───────────┘    └──────────┘
 ```
 
-**Stage details:**
+**Upload**: FastAPI receives the file, validates MIME type, file size, and integrity. Fails fast with appropriate HTTP status codes.
 
-1. **Upload & Validate** (`app/api/routes.py`): FastAPI receives the multipart upload. Validates MIME type against `SUPPORTED_FORMATS`, checks file size against `MAX_FILE_SIZE` (20MB default), validates `level` and `response_format` parameters.
+**Extract**: The appropriate extractor (PDF or image) pulls text content with positional metadata. For PDFs, `PyMuPDF.get_text("dict")` provides span-level text with bounding boxes. For images, `pytesseract.image_to_data()` provides word-level OCR with coordinates. A `SpanMap` is built during this stage, mapping cumulative character offsets to page coordinates.
 
-2. **Orchestrate** (`app/pipeline/orchestrator.py`): The `SanitizationPipeline` class resolves whether the input is a PDF or image (extension check + magic bytes fallback), then chains the correct extractor, detector(s), and sanitizer.
+**Detect**: Presidio runs NLP-based and pattern-based entity recognition on the concatenated text. When `level=strict`, OpenCV YuNet runs face detection and connected component analysis runs signature detection on extracted images.
 
-3. **Extract** (`app/pipeline/extractors/`): Pulls text content with position metadata from the source file. For PDFs, uses PyMuPDF `get_text("dict")` to walk blocks -> lines -> spans, building a `SpanMap` that tracks cumulative character offsets to bounding boxes. For images, uses pytesseract `image_to_data` for OCR with bounding boxes. If a PDF page has no native text, falls back to OCR via `get_textpage_ocr(language="spa")`.
+**Sanitize**: Findings with coordinates are applied as real redactions. PDFs use `PyMuPDF.add_redact_annot()` + `apply_redactions()` which permanently removes content. Images use `cv2.rectangle()` to fill detected regions with solid black.
 
-4. **Detect** (`app/pipeline/detectors/`): Runs Presidio Analyzer on the extracted text with Spanish NLP. The `TextPiiDetector` maps Presidio character offsets back to page coordinates via the SpanMap. If level is `strict`, the `VisualDetector` additionally runs YuNet face detection and connected component signature analysis on extracted images.
-
-5. **Sanitize** (`app/pipeline/sanitizers/`): For PDFs, applies PyMuPDF real redaction (`add_redact_annot` + `apply_redactions`) which permanently removes content. For images, draws filled black rectangles over detected regions using OpenCV/Pillow.
-
-6. **Output** (`app/api/routes.py`): Based on `response_format`, returns the sanitized file as binary stream, JSON findings, or both (with base64-encoded file).
+**Output**: The response is built based on `response_format` — binary file download, JSON findings, or both.
 
 ### 8.2 Module Design
 
-| Module | Responsibility | Key Classes | File Path |
-|--------|---------------|-------------|-----------|
-| API Layer | HTTP endpoints, validation, response building | `router`, `sanitize()`, `health()` | `app/api/routes.py` |
-| API Schemas | Pydantic models for request/response | `FindingResponse`, `SanitizeResponse`, `SanitizeFullResponse`, `ErrorResponse` | `app/api/schemas.py` |
-| Config | Environment-based settings with Pydantic | `Settings` | `app/config.py` |
-| Domain Models | Core data structures | `Finding`, `EntityType`, `SanitizationLevel`, `SanitizationResult`, `FindingSummary` | `app/models/findings.py` |
-| Extraction Models | SpanMap + extraction results | `SpanMap`, `SpanInfo`, `ExtractionResult`, `ExtractedImage` | `app/models/extraction.py` |
-| Orchestrator | Pipeline coordination, file type resolution | `SanitizationPipeline` | `app/pipeline/orchestrator.py` |
+| Module | Responsibility | Key Classes | Path |
+|--------|---------------|-------------|------|
+| API Layer | HTTP routing, validation, response building | `router`, `sanitize()` | `app/api/routes.py` |
+| API Schemas | Request/response Pydantic models | `SanitizeResponse`, `FindingResponse`, `ErrorResponse` | `app/api/schemas.py` |
+| Config | Environment-driven settings | `Settings` | `app/config.py` |
+| Domain Models | Core data structures | `Finding`, `EntityType`, `SanitizationLevel`, `SanitizationResult` | `app/models/findings.py` |
+| Extraction Models | SpanMap, ExtractionResult | `SpanMap`, `SpanInfo`, `ExtractionResult` | `app/models/extraction.py` |
+| Orchestrator | Pipeline coordination | `SanitizationPipeline` | `app/pipeline/orchestrator.py` |
 | PDF Extractor | Text + image extraction from PDFs | `PdfExtractor` | `app/pipeline/extractors/pdf.py` |
-| Image Extractor | OCR + image loading | `ImageExtractor` | `app/pipeline/extractors/image.py` |
-| Text Detector | Presidio-based PII detection | `TextPiiDetector` | `app/pipeline/detectors/text_pii.py` |
+| Image Extractor | OCR text extraction from images | `ImageExtractor` | `app/pipeline/extractors/image.py` |
+| Text PII Detector | Presidio-based entity recognition | `TextPiiDetector` | `app/pipeline/detectors/text_pii.py` |
 | Visual Detector | Face + signature detection | `VisualDetector` | `app/pipeline/detectors/visual.py` |
-| Custom Recognizers | Spanish phone + address patterns | `EsPhoneRecognizer`, `EsAddressRecognizer` | `app/pipeline/detectors/recognizers/` |
-| PDF Sanitizer | PyMuPDF real redaction | `PdfSanitizer` | `app/pipeline/sanitizers/pdf.py` |
-| Image Sanitizer | Rectangle fill redaction | `ImageSanitizer` | `app/pipeline/sanitizers/image.py` |
+| Phone Recognizer | Spanish phone number patterns | `EsPhoneRecognizer` | `app/pipeline/detectors/recognizers/es_phone.py` |
+| Address Recognizer | Spanish address patterns | `EsAddressRecognizer` | `app/pipeline/detectors/recognizers/es_address.py` |
+| PDF Sanitizer | Real redaction on PDFs | `PdfSanitizer` | `app/pipeline/sanitizers/pdf.py` |
+| Image Sanitizer | Pixel-level redaction on images | `ImageSanitizer` | `app/pipeline/sanitizers/image.py` |
+| App Entry | FastAPI factory, lifespan, middleware | `app`, `lifespan()` | `app/main.py` |
 
-### 8.3 SpanMap -- The Critical Innovation
+### 8.3 SpanMap — The Critical Innovation
 
-**The problem:** Presidio operates on plain text and returns character offsets (e.g., "PII found at characters 42-51"). But to redact in a PDF, we need **page coordinates** (bounding boxes). The text Presidio analyzes is a concatenation of hundreds of text spans extracted from the PDF, each at different positions on different pages.
+The hardest integration challenge in document sanitization is **mapping text detection results back to document coordinates**. Presidio operates on plain text and returns character offsets (e.g., "DNI found at chars 145-154"). But to redact in a PDF, you need pixel coordinates on a specific page.
 
-**The solution:** `SpanMap` — a data structure built during extraction that creates a bidirectional mapping between cumulative character offsets and PDF coordinates.
+**The problem**: PyMuPDF extracts text as hierarchical spans (blocks -> lines -> spans), each with a bounding box. Presidio receives concatenated plain text and has no concept of pages or coordinates. The mapping between "character 145 in the plain text" and "this rectangle on page 2" is non-trivial, especially with multi-column layouts, rotated text, or spans that break across lines.
 
-**How it works:**
+**The solution**: `SpanMap` (defined in `app/models/extraction.py`).
 
-1. During extraction, `PdfExtractor` walks through PyMuPDF's `get_text("dict")` output: blocks -> lines -> spans.
-2. For each span, `SpanMap.append(SpanInfo(text, bbox, page))` is called, recording the span's text, bounding box, and page number at the current cursor position.
-3. Separators (newlines between lines and blocks) advance the cursor via `SpanMap.advance()`.
-4. After extraction, Presidio analyzes the concatenated text.
-5. For each Presidio result, `SpanMap.resolve(start, end)` uses `bisect_right` for O(log n) lookup to find all spans overlapping with the detected character range, returning `(page, bbox)` pairs.
+During extraction, as each text span is processed, `SpanMap.append()` records the span's text, bounding box, page number, and its cumulative character offset in the concatenated text. Separators (newlines between lines and blocks) are tracked with `SpanMap.advance()`.
 
-**Edge cases handled:**
-- **Multi-span PII**: A name split across two font spans returns multiple bounding boxes — each gets a separate redaction annotation.
-- **Multi-column layouts**: PyMuPDF reads in document order; SpanMap follows the same order, so offsets stay aligned.
-- **Rotated text**: PyMuPDF accounts for rotation in bbox coordinates; SpanMap captures whatever bbox PyMuPDF reports.
-- **OCR fallback**: For scanned pages, OCR word boxes are registered in the SpanMap the same way as native text spans.
+When Presidio returns a detection at `[start, end)`, `SpanMap.resolve(start, end)` uses `bisect.bisect_right()` for **O(log n)** lookup to find all spans whose character ranges overlap the detection range. It returns `(page, bbox)` pairs that the sanitizer uses for redaction.
+
+**Key design decisions:**
+- `bisect` for O(log n) lookup instead of linear scan
+- Parallel `_offsets` list enables bisect without key functions
+- Handles PII spanning multiple spans by returning all overlapping SpanRects
+- Frozen `SpanInfo` dataclass with `__slots__` for immutability and memory efficiency
 
 ### 8.4 Technology Stack
 
 | Component | Technology | Version | Rationale |
 |-----------|-----------|---------|-----------|
-| Language | Python | 3.12+ | Ecosystem support for NLP, PDF processing, and computer vision |
-| Web framework | FastAPI | >= 0.115 | Async support, automatic OpenAPI docs, Pydantic integration |
-| ASGI server | Uvicorn | >= 0.34 | Standard production server for FastAPI |
-| PII detection | Presidio Analyzer | >= 2.2 | Modular, extensible, supports custom recognizers and multiple NLP backends |
-| NLP backend | spaCy (`es_core_news_md`) | >= 3.8 | Best tradeoff for Spanish NER: good accuracy without bloating Docker image (~50MB vs ~500MB for `_lg`) |
-| PDF processing | PyMuPDF (fitz) | >= 1.25 | Real redaction support, text extraction with coordinates, built-in OCR integration |
-| OCR | Tesseract OCR + pytesseract | >= 0.3.13 | Industry standard OCR, good Spanish support via `tesseract-ocr-spa` |
-| Computer vision | OpenCV (headless) | >= 4.10 | Face detection (YuNet built-in), image processing, no GUI dependencies |
-| Image processing | Pillow | >= 11.0 | Image loading, format conversion, drawing primitives |
-| Configuration | Pydantic Settings | >= 2.7 | Type-safe, env var loading, validation on startup, 12-factor compatible |
-| File upload | python-multipart | >= 0.0.18 | Required by FastAPI for multipart/form-data parsing |
-| Testing | pytest + pytest-asyncio | >= 8.3 | Async test support for FastAPI endpoints |
-| HTTP test client | httpx | >= 0.28 | Required by FastAPI TestClient |
-| Containerization | Docker + docker-compose | — | Reproducible builds, system dependency management |
+| Language | Python | 3.12+ | Ecosystem compatibility with NLP/CV libraries |
+| Web framework | FastAPI | >=0.115 | Async, auto-docs, Pydantic integration, production-ready |
+| ASGI server | Uvicorn | >=0.34 | Standard ASGI server for FastAPI |
+| PII detection | Presidio Analyzer | >=2.2 | Microsoft's battle-tested PII detection with extensible recognizers |
+| PII anonymization | Presidio Anonymizer | >=2.2 | Companion library for redaction strategies |
+| NLP | spaCy (`es_core_news_md`) | >=3.8 | Spanish NER for person names and contextual entity recognition |
+| PDF processing | PyMuPDF (fitz) | >=1.25 | Fast PDF text extraction with coordinates + real redaction capability |
+| OCR | Tesseract + pytesseract | System + >=0.3.13 | Industry-standard OCR with Spanish language support |
+| Computer vision | OpenCV (headless) | >=4.10 | YuNet face detection, connected component analysis |
+| Image processing | Pillow | >=11.0 | Image loading, format conversion |
+| Configuration | Pydantic Settings | >=2.7 | Type-safe, env-var based, validates on startup |
+| Multipart handling | python-multipart | >=0.0.18 | File upload parsing for FastAPI |
+| Testing | pytest + pytest-asyncio | >=8.3, >=0.25 | Async test support for FastAPI |
+| HTTP test client | httpx | >=0.28 | TestClient backend for FastAPI |
+| Containerization | Docker | — | Reproducible builds with system deps (Tesseract) |
+| Orchestration | Docker Compose | — | Single-command local deployment |
 
 ### 8.5 Docker Architecture
 
-```dockerfile
-FROM python:3.12-slim                          # ~150MB base
+**Base image:** `python:3.12-slim`
 
-# System layer: Tesseract + Spanish + OpenCV deps + poppler
-RUN apt-get install tesseract-ocr tesseract-ocr-spa libgl1 libglib2.0-0 poppler-utils curl
+**Layer breakdown:**
 
-# Python deps layer (cached unless pyproject.toml changes)
-COPY pyproject.toml .
-RUN pip install --no-cache-dir .
+| Layer | Content | Estimated Size |
+|-------|---------|---------------|
+| Base image | Python 3.12 slim | ~150 MB |
+| System deps | Tesseract OCR + Spanish pack, libgl1, libglib2.0, poppler-utils, curl | ~200 MB |
+| Python deps | FastAPI, Presidio, PyMuPDF, OpenCV, Pillow, spaCy | ~600 MB |
+| spaCy model | `es_core_news_md` | ~50 MB |
+| YuNet model | `face_detection_yunet_2023mar.onnx` (downloaded at build time) | ~340 KB |
+| Application code | `app/` directory | ~100 KB |
+| **Total** | | **~1.0-1.5 GB** |
 
-# Model layer: spaCy + YuNet (cached unless explicitly rebuilt)
-RUN python -m spacy download es_core_news_md   # ~50MB
-RUN curl -L -o /app/models/yunet.onnx ...      # ~340KB
-
-# Application layer (changes frequently)
-COPY app/ /app/app/
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-**Layer strategy:** System deps and models are in early layers (rarely change, cached). Application code is in the last layer (fast rebuilds during development).
-
-**Estimated image size:** ~1.5-2 GB (breakdown: Python slim ~150MB, system packages ~200MB, Python packages ~600MB, spaCy model ~50MB, OpenCV ~400MB, PyMuPDF + Presidio ~200MB).
-
-**Docker Compose** defines a single service with health check (`curl -f http://localhost:8000/api/v1/health`), env file loading, and a named volume for temp file storage.
+**Docker Compose configuration:**
+- Host port 8010 mapped to container port 8000
+- Named volume `saniflow-tmp` mounted at `/tmp/saniflow`
+- Environment loaded from `.env` file
+- Health check: `curl -f http://localhost:8000/api/v1/health` every 30s (3 retries, 30s start period)
 
 ---
 
@@ -461,37 +433,33 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ### 9.1 Core Principles
 
-| R-ID | Principle | Implementation |
-|------|-----------|----------------|
-| R-SEC-01 | **Zero data retention** | Stateless processing. No database, no file storage, no session state. Files exist only in memory during processing. |
-| R-SEC-02 | **Real redaction** | PyMuPDF `apply_redactions()` permanently removes content from the PDF. Not a visual overlay — the underlying text and graphics are irretrievably deleted. |
-| R-SEC-03 | **No external API calls** | All PII detection runs locally: Presidio + spaCy NLP models, OpenCV YuNet, Tesseract OCR. No data leaves the server. |
-| R-SEC-04 | **No PII in logs** | Error messages are generic ("Internal processing error"). Detected PII text is logged only at DEBUG level, never in production. |
-| R-SEC-05 | **Minimal error exposure** | HTTP 500 responses contain no stack traces or internal details. Errors are logged server-side only. |
+**[R-SEC-01] Zero data retention.** The MVP is fully stateless. No uploaded file, extracted text, or detection result is persisted to disk or database. Files are processed in memory and discarded after the response is sent. The temp directory (`/tmp/saniflow`) is used only for intermediate processing and is not a persistence layer.
+
+**[R-SEC-02] Real redaction, not overlays.** When Saniflow redacts a PDF, the underlying text content is permanently removed from the document structure using PyMuPDF's `add_redact_annot()` + `apply_redactions()`. This is irreversible by design. Copy-pasting from the redacted area yields nothing. Text extraction tools find nothing. The content is gone.
+
+**[R-SEC-03] No external API calls for PII detection.** All detection runs locally — Presidio, spaCy, Tesseract, OpenCV. No document content is ever sent to an external service. This is a fundamental architectural constraint, not an optimization.
 
 ### 9.2 Redaction Guarantee
 
-**PyMuPDF real redaction** is a two-step process:
+**PDF Redaction (PyMuPDF):**
+PyMuPDF's two-step process — `add_redact_annot(rect)` then `apply_redactions()` — physically removes content from the PDF's internal structure. The `graphics=0` flag preserves vector graphics outside redacted areas while removing text within them. This is a different mechanism from annotation-based "redaction" that simply overlays a black box.
 
-1. `page.add_redact_annot(rect, fill=(0,0,0))` — marks the area for redaction with a black fill.
-2. `page.apply_redactions()` — **permanently removes** all text and vector graphics underneath the marked areas. The content is deleted from the PDF's internal structure, not just covered.
+**Known issue: PyMuPDF #2762.** After applying redactions, some text OUTSIDE redaction areas has been reported to disappear in certain edge cases. Mitigation: thorough testing with diverse real documents, and documenting this as a known limitation. Future mitigation includes pre/post comparison validation.
 
-This is fundamentally different from drawing a black rectangle on top of text (which can be removed by anyone with a PDF editor).
-
-**Known issue: PyMuPDF #2762.** After applying redactions, some text OUTSIDE redaction areas may disappear in certain PDF structures. This is a known upstream issue. Mitigation: test with real documents before production deployment; verify output documents preserve non-redacted content. The risk is low but non-zero.
-
-**Image redaction** uses filled rectangles via OpenCV/Pillow. Since images don't have an underlying text layer, pixel replacement is a complete redaction.
+**Image Redaction:**
+For images, redaction fills detected regions with solid black rectangles at the pixel level (`cv2.rectangle`). The original pixel data in those regions is overwritten and unrecoverable.
 
 ### 9.3 Future Security Features
 
-| R-ID | Feature | Priority | Description |
-|------|---------|----------|-------------|
-| R-SEC-06 | Temp file encryption | P2 | Encrypt any temporary files written to disk during processing |
-| R-SEC-07 | Memory-only processing | P2 | Ensure all processing happens in memory with no disk writes |
-| R-SEC-08 | mTLS for API | P3 | Mutual TLS for service-to-service communication |
-| R-SEC-09 | API key authentication | P3 | Require API keys for access, with per-key rate limits |
-| R-SEC-10 | Audit logging | P3 | Structured audit trail: who sanitized what, when, what was found (without storing the PII itself) |
-| R-SEC-11 | SOC 2 compliance path | P4 | Documentation and controls for SOC 2 Type II certification |
+| Feature | Priority | Description |
+|---------|----------|-------------|
+| Encryption at rest for temp files | P2 | Encrypt any intermediate files written to disk |
+| API key authentication | P3 | Prevent unauthorized access to the sanitization API |
+| mTLS for API communication | P3 | Mutual TLS for service-to-service trust |
+| Rate limiting | P3 | Prevent abuse and resource exhaustion |
+| Request signing | P4 | Verify request integrity and origin |
+| SOC 2 compliance path | P4 | Audit controls, access logging, change management |
+| Secure temp file cleanup | P2 | Guarantee temp files are wiped even on crash |
 
 ---
 
@@ -499,7 +467,7 @@ This is fundamentally different from drawing a black rectangle on top of text (w
 
 ### 10.1 Local Development
 
-Requirements: Python 3.12+, Tesseract OCR with Spanish language pack, YuNet ONNX model.
+Requires: Python 3.12+, Tesseract OCR with Spanish language pack, YuNet ONNX model file.
 
 ```bash
 # Install dependencies
@@ -518,68 +486,63 @@ export SANIFLOW_YUNET_MODEL_PATH=models/face_detection_yunet_2023mar.onnx
 
 # Run the server
 uvicorn app.main:app --reload
+
+# Run tests
+pytest
+pytest -m "not slow"          # skip slow tests
+pytest -m "not integration"   # unit tests only
 ```
 
 ### 10.2 Docker Deployment
 
 ```bash
-cp .env.example .env    # Configure environment variables
+cp .env.example .env
 docker compose up --build
 ```
 
-The service is available at `http://localhost:8000`. Health check runs every 30 seconds with a 30-second start period to allow model loading.
+The API is available at `http://localhost:8010`. Health check is automatic via Docker Compose.
 
-### 10.3 Configuration Reference
+### 10.3 Future Deployment Options
 
-All environment variables are prefixed with `SANIFLOW_`.
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SANIFLOW_MAX_FILE_SIZE` | `20971520` (20 MB) | Maximum upload file size in bytes |
-| `SANIFLOW_SUPPORTED_FORMATS` | `["application/pdf","image/jpeg","image/png"]` | Accepted MIME types |
-| `SANIFLOW_DEFAULT_LEVEL` | `standard` | Default sanitization level |
-| `SANIFLOW_CONFIDENCE_THRESHOLD_REGEX` | `0.7` | Minimum confidence for regex-based detections |
-| `SANIFLOW_CONFIDENCE_THRESHOLD_NER` | `0.5` | Minimum confidence for NER-based detections |
-| `SANIFLOW_TESSERACT_LANG` | `spa` | Tesseract OCR language code |
-| `SANIFLOW_SPACY_MODEL` | `es_core_news_md` | spaCy NLP model for entity recognition |
-| `SANIFLOW_YUNET_MODEL_PATH` | `/app/models/face_detection_yunet_2023mar.onnx` | Path to YuNet face detection ONNX model |
-| `SANIFLOW_TEMP_DIR` | `/tmp/saniflow` | Temporary file directory |
-
-### 10.4 Future Deployment Options
-
-| R-ID | Option | Priority | Notes |
-|------|--------|----------|-------|
-| R-DEP-01 | Kubernetes (Helm chart) | P2 | Horizontal scaling, health probes, resource limits |
-| R-DEP-02 | AWS ECS / Fargate | P3 | Serverless container deployment |
-| R-DEP-03 | SaaS hosted | P4 | Multi-tenant hosted version with API key management |
+| Option | Priority | Description |
+|--------|----------|-------------|
+| Kubernetes (Helm chart) | P3 | Horizontal scaling, auto-scaling based on CPU/memory |
+| AWS ECS / Fargate | P3 | Managed container orchestration |
+| Serverless (AWS Lambda) | P4 | Per-invocation pricing; constrained by cold start and memory limits |
+| SaaS hosted | P4 | Multi-tenant hosted service with API keys and billing |
+| On-premise appliance | P5 | Pre-configured VM/container for enterprise customers |
 
 ---
 
 ## 11. Integration Roadmap
 
-### 11.1 MCP Server (R-INT-01, Priority: High)
+### 11.1 MCP Server (Priority: High)
 
-**What it enables:** AI tools (Claude, ChatGPT, custom agents) consume documents through Saniflow automatically. The AI never sees unsanitized content.
+**What it enables:** AI tools — Claude, GPT-based assistants, coding agents, RAG systems — consume documents through the MCP protocol. Saniflow sits as an MCP server that intercepts document access and returns only sanitized content. The AI model never sees raw PII.
 
 **How it would work:**
-1. Saniflow exposes an MCP-compatible interface alongside (or instead of) the REST API.
-2. AI tools register Saniflow as a document processing resource.
-3. When an AI needs to read a document, it calls Saniflow's MCP endpoint.
-4. Saniflow sanitizes the document and returns clean content to the AI.
+1. AI tool requests a document via MCP
+2. Saniflow MCP server receives the request
+3. Document is sanitized through the standard pipeline
+4. Sanitized content is returned to the AI tool
+5. Findings are logged for audit (optional)
 
-**Which AI tools benefit:** Claude (via MCP), any LangChain/LlamaIndex pipeline, custom AI agents with tool-use capabilities, RAG systems that ingest documents.
+**Which AI tools benefit:** Claude Desktop, Cursor, Windsurf, custom LLM agents, any MCP-compatible tool.
 
-### 11.2 Webhook Integration (R-INT-02, Priority: Medium)
+### 11.2 Webhook Integration
 
-POST sanitized results to external URLs upon completion. Enables event-driven architectures where sanitization is a step in a larger workflow.
+Post-sanitization webhooks would allow Saniflow to push results to external systems:
+- Sanitized file uploaded to S3/GCS
+- Findings report sent to a compliance dashboard
+- Alerts on high-risk PII detection (many entities, specific types)
 
-### 11.3 SDK / Client Libraries (R-INT-03, Priority: Medium)
+### 11.3 SDK / Client Libraries
 
 | SDK | Priority | Description |
 |-----|----------|-------------|
 | Python | P2 | `pip install saniflow-client` — typed client with async support |
-| TypeScript | P2 | `npm install @saniflow/client` — for Node.js and browser-based integrations |
-| Go | P3 | For high-performance pipeline integrations |
+| TypeScript/JavaScript | P2 | `npm install @saniflow/client` — for Node.js and browser |
+| Go | P3 | For backend services and CLI tools |
 
 ---
 
@@ -587,68 +550,69 @@ POST sanitized results to external URLs upon completion. Enables event-driven ar
 
 ### Phase 1: MVP (Current -- v0.1.0)
 
-**Status: Implemented**
+**Status: Complete**
 
-- FastAPI application with Pydantic configuration
-- Pipeline orchestrator with Protocol-based abstractions
+- FastAPI application with health and sanitize endpoints
+- Pipeline orchestrator with pluggable extractor/detector/sanitizer stages
 - PDF extraction with SpanMap coordinate mapping
-- Image extraction with OCR (pytesseract)
-- Text PII detection via Presidio (PERSON, DNI/NIE, EMAIL, PHONE, IBAN, ADDRESS)
-- Visual PII detection: YuNet faces + connected component signatures
+- Image extraction with Tesseract OCR
+- Text PII detection via Presidio: person names, DNI/NIE, email, phone, IBAN, address
+- Visual PII detection: YuNet face detection, connected component signature detection
 - PDF real redaction via PyMuPDF
-- Image redaction via OpenCV/Pillow
-- Three response formats: file, json, full
-- Two sanitization levels: standard, strict
-- Docker + docker-compose deployment
-- Health check endpoint
+- Image redaction via OpenCV
+- Standard and strict sanitization levels
+- Three response formats: file, JSON, full
+- Docker and Docker Compose deployment
+- Configuration via environment variables with Pydantic Settings
+- CORS middleware enabled
 
 ### Phase 2: Hardening (v0.2.0)
 
-- Upgrade to `es_core_news_lg` spaCy model for better Spanish NER accuracy
-- Improved address detection (ML-based or expanded regex patterns)
-- Signature detection improvements (reduce false positives)
-- Real document testing suite with diverse Spanish document types
-- Performance benchmarks and optimization
-- Input validation hardening (malformed PDFs, adversarial inputs)
+- Upgrade spaCy model to `es_core_news_lg` for better Spanish NER accuracy
+- Improve address detection with additional regex patterns and context heuristics
+- Improve signature detection with contour-based approach
+- Build a real document testing suite with diverse Spanish documents
+- Performance benchmarks: processing time, memory usage, accuracy metrics
+- Pre/post redaction validation (detect PyMuPDF #2762 side effects)
 - Structured logging with correlation IDs
 
 ### Phase 3: Production Ready (v0.3.0)
 
-- API key authentication (header-based)
+- API key authentication (simple bearer token)
 - Rate limiting (per-key and global)
 - Async processing with FastAPI background tasks for large files
-- Basic audit trail (what was processed, when, what was found -- no PII stored)
-- Processing history with optional database (PostgreSQL)
-- Prometheus metrics endpoint
-- Health dashboard (processing counts, latency percentiles, error rates)
+- Basic audit trail: what was sanitized, when, by whom (in-memory or SQLite)
+- Processing history with optional database persistence
+- Monitoring dashboard: health, request count, error rate, processing times
+- OpenAPI documentation improvements
 
 ### Phase 4: Multi-tenant (v0.4.0)
 
-- Organization accounts with API key management
-- Configurable sanitization policies per organization
-- Custom entity types (company-specific patterns)
+- Company/organization accounts
+- Configurable sanitization policies per tenant
+- Custom entity types (company-specific PII definitions)
 - Usage tracking and quotas
 - Billing integration (Stripe)
-- Admin API for organization management
+- Tenant isolation guarantees
 
 ### Phase 5: AI Integration (v0.5.0)
 
 - MCP server implementation
-- Webhook support (POST results to external URLs)
-- Python SDK (`saniflow-client`)
-- TypeScript SDK (`@saniflow/client`)
-- AI pipeline middleware (LangChain, LlamaIndex integration)
-- Streaming API for real-time progress
+- Webhook support for post-processing events
+- Python and TypeScript SDK client libraries
+- AI pipeline middleware (LangChain, LlamaIndex integrations)
+- Batch processing API
+- Async job queue (Redis/RabbitMQ workers)
 
 ### Phase 6: Enterprise (v1.0.0)
 
-- Web frontend for manual sanitization and review
+- Web frontend for document upload and review
 - Admin dashboard with analytics
-- GDPR compliance presets (all Article 4 personal data categories)
-- HIPAA Safe Harbor presets (18 identifiers)
-- On-premise deployment guide and support
-- SLA guarantees (99.9% uptime, < 5s processing for standard documents)
+- GDPR/HIPAA compliance presets
+- On-premise deployment with Helm charts
+- SLA guarantees (99.9% availability)
 - SOC 2 Type II certification path
+- Multi-language support (English, French, German, Portuguese)
 
 ---
 
@@ -656,43 +620,42 @@ POST sanitized results to external URLs upon completion. Enables event-driven ar
 
 ### Performance
 
-| R-ID | Requirement | Target | Notes |
-|------|------------|--------|-------|
-| R-PERF-01 | Max processing time (10-page native PDF, standard) | < 5 seconds | Excludes OCR time |
-| R-PERF-02 | Max processing time (10-page native PDF, strict) | < 10 seconds | Includes face detection on embedded images |
-| R-PERF-03 | Max processing time (single image, strict) | < 3 seconds | OCR + face detection |
-| R-PERF-04 | Max processing time (scanned PDF per page) | < 10 seconds/page | OCR is ~1000x slower than text extraction |
-| R-PERF-05 | Max upload file size | 20 MB (configurable) | Prevents memory exhaustion |
-| R-PERF-06 | Peak memory usage per request | < 500 MB | For a 20MB PDF with embedded images |
+| Requirement | ID | Target |
+|-------------|-----|--------|
+| PDF processing (10-page, native text) | R-PERF-01 | < 5 seconds |
+| PDF processing (10-page, scanned/OCR) | R-PERF-02 | < 30 seconds |
+| Image processing (single JPEG/PNG) | R-PERF-03 | < 3 seconds |
+| Max concurrent requests (single instance) | R-PERF-04 | 5-10 (CPU-bound processing) |
+| Memory per request (10-page PDF) | R-PERF-05 | < 500 MB peak |
+| Max file size | R-PERF-06 | 20 MB (configurable) |
 
 ### Reliability
 
-| R-ID | Requirement | Implementation |
-|------|------------|----------------|
-| R-REL-01 | Graceful error handling | All pipeline errors caught and returned as HTTP 422/500 with generic messages |
-| R-REL-02 | No partial output | If any pipeline stage fails, the entire request fails cleanly — no half-redacted documents |
-| R-REL-03 | Corrupt file detection | Validate file integrity before processing; return 422 for unreadable files |
-| R-REL-04 | Idempotent processing | Same input always produces same output (deterministic pipeline) |
-| R-REL-05 | Lazy model loading | Presidio analyzer and spaCy model loaded on first request, not at startup (avoids slow cold starts blocking health checks) |
+| Requirement | ID | Description |
+|-------------|-----|-------------|
+| Error isolation | R-REL-01 | A failed processing request MUST NOT affect other concurrent requests |
+| Graceful degradation | R-REL-02 | If OCR fails, fall back to text-only extraction. If visual detection fails, return text findings only |
+| Idempotent processing | R-REL-03 | Same file + same parameters MUST produce identical output |
+| No data corruption | R-REL-04 | Output file MUST be valid (valid PDF, valid JPEG/PNG) |
+| Catch-all error handler | R-REL-05 | Unhandled exceptions return generic 500, never leak internals |
 
 ### Scalability
 
-| Phase | Approach |
-|-------|----------|
-| MVP (current) | Single instance, synchronous processing, one request at a time per worker |
-| v0.3.0 | Multiple Uvicorn workers, async processing with background tasks |
-| v0.4.0 | Horizontal scaling with Kubernetes, shared-nothing architecture (stateless by design) |
-| Future | Worker pool with task queue (Celery/Redis or similar) for CPU-intensive OCR and detection |
+| Phase | Architecture | Concurrency |
+|-------|-------------|-------------|
+| MVP (current) | Single Uvicorn instance | Limited by CPU cores; processing is synchronous |
+| v0.3.0 | Background tasks | Async request handling with sync processing in thread pool |
+| v0.5.0 | Worker queue | Celery/RQ workers for horizontal scaling |
+| v1.0.0 | Kubernetes | Auto-scaling pods based on CPU/memory utilization |
 
 ### Observability
 
-| R-ID | Requirement | Status |
-|------|------------|--------|
-| R-OBS-01 | Structured logging (Python logging) | Implemented |
-| R-OBS-02 | Health check endpoint | Implemented (`GET /api/v1/health`) |
-| R-OBS-03 | Prometheus metrics | Planned (v0.3.0) |
-| R-OBS-04 | Distributed tracing (OpenTelemetry) | Planned (v0.4.0) |
-| R-OBS-05 | Error tracking (Sentry) | Planned (v0.3.0) |
+| Feature | MVP | v0.3.0 | v1.0.0 |
+|---------|-----|--------|--------|
+| Structured logging | Python `logging` | JSON logs with correlation IDs | ELK/Loki |
+| Health checks | `GET /api/v1/health` | Dependency health (Tesseract, models loaded) | Deep health checks |
+| Metrics | None | Prometheus endpoint | Full dashboard (Grafana) |
+| Tracing | None | Request tracing | Distributed tracing (OpenTelemetry) |
 
 ---
 
@@ -700,72 +663,68 @@ POST sanitized results to external URLs upon completion. Enables event-driven ar
 
 | ID | Limitation | Severity | Impact | Mitigation |
 |----|-----------|----------|--------|------------|
-| L-01 | **PyMuPDF #2762**: Text outside redaction areas may disappear after `apply_redactions()` on some PDF structures | Medium | Non-redacted content could be lost in output | Test with real documents; monitor upstream fix; consider pre/post diff validation |
-| L-02 | **Spanish NER accuracy**: `es_core_news_md` misses some Spanish names, especially uncommon ones or names in unusual contexts | Medium | PII leaks through | Upgrade to `es_core_news_lg` in v0.2.0; add name dictionary fallback |
-| L-03 | **Address detection low confidence**: Custom regex covers ~50-60% of Spanish address formats | High | Many addresses will not be detected | Strict mode only for now; ML-based approach planned for v0.2.0 |
-| L-04 | **Signature detection experimental**: Connected component heuristic has ~50-60% precision | Medium | False positives (stamps, logos misidentified); false negatives (light signatures missed) | Marked as experimental; YOLO-based approach planned for future |
-| L-05 | **Docker image size**: ~1.5-2 GB due to Tesseract, spaCy models, OpenCV | Low | Slower deployments, higher storage costs | Multi-stage builds; investigate Alpine base; lazy model loading |
-| L-06 | **OCR performance**: Scanned PDFs process ~1000x slower than native text | Medium | Timeouts on large scanned documents | Warn in response; future: async processing with job queue |
-| L-07 | **Single language**: Only Spanish NLP is configured | Medium | Cannot sanitize English, French, or other language documents | Multi-language support planned; Presidio supports it natively |
-| L-08 | **No authentication**: MVP has no auth layer | High (for production) | Anyone with network access can use the API | API keys in v0.3.0; intended for internal/trusted networks in MVP |
-| L-09 | **Synchronous processing**: Blocks on large files | Medium | Slow responses for large documents | Async background tasks in v0.3.0 |
-| L-10 | **Context-dependent detection**: Presidio's Spanish context words default to English | Low | Some detections may have lower confidence without proper context | Custom context words configured for phone and address recognizers |
+| L-01 | PyMuPDF issue #2762: text outside redaction areas may disappear after `apply_redactions()` | High | Sanitized PDF may have unintended content removal | Extensive testing with diverse documents; pre/post text comparison validation (Phase 2) |
+| L-02 | Spanish NER (`es_core_news_md`) has moderate accuracy for person names | Medium | Some names may be missed (~30% miss rate) | Upgrade to `es_core_news_lg` in Phase 2; combine with context-based heuristics |
+| L-03 | Address detection has low confidence (~40-50% recall) | Medium | Many addresses will not be detected | Improve regex coverage in Phase 2; consider LLM-based detection in future |
+| L-04 | Signature detection is experimental (heuristic-based) | Medium | False positives with stamps, logos, handwritten notes | Document as experimental; allow users to disable; improve in Phase 2 |
+| L-05 | Docker image size ~1.0-1.5 GB | Low | Slower deployments, higher storage costs | Multi-stage build optimization; consider alpine base |
+| L-06 | OCR on scanned PDFs is slow (~10x native text extraction) | Medium | 30+ second processing for scanned documents | Lazy OCR (only when native text is empty); future: async processing |
+| L-07 | No multi-language support | Medium | Only works reliably for Spanish documents | Phase 6: add en, fr, de, pt models |
+| L-08 | Synchronous processing blocks the worker | Medium | Limited concurrent request handling | Phase 3: background tasks; Phase 5: worker queue |
+| L-09 | No authentication | High (for production) | Anyone with network access can use the API | Phase 3: API key auth |
+| L-10 | No audit trail | Medium (for compliance) | Cannot prove what was sanitized, when, or by whom | Phase 3: basic audit logging |
 
 ---
 
 ## 15. Success Metrics
 
-| Metric | Target | Measurement Method |
-|--------|--------|--------------------|
-| PII detection recall (text, high-confidence entities: DNI, email, IBAN, phone) | > 95% | Test suite with known PII documents |
-| PII detection recall (text, NER-based: names) | > 75% | Test suite with diverse Spanish names |
-| PII detection recall (visual, faces) | > 85% | Test suite with document photographs |
-| Processing time (10-page native PDF, standard) | < 5 seconds | Benchmark suite |
-| Processing time (single image, strict) | < 3 seconds | Benchmark suite |
-| False positive rate (text PII) | < 10% | Manual review of test corpus results |
-| False positive rate (visual PII) | < 15% | Manual review of test corpus results |
-| API availability (production) | 99.9% | Uptime monitoring |
-| Docker build time (cached layers) | < 30 seconds | CI pipeline measurement |
-| Docker build time (clean) | < 10 minutes | CI pipeline measurement |
+| Metric | ID | Target | Measurement Method |
+|--------|-----|--------|--------------------|
+| PII detection recall (text, high-confidence entities) | M-01 | > 95% for DNI/NIE/IBAN/email | Test suite with known PII documents |
+| PII detection recall (text, NER-based entities) | M-02 | > 70% for person names | Manual evaluation on diverse Spanish documents |
+| PII detection recall (visual, faces) | M-03 | > 85% | Test suite with portrait photos at various sizes |
+| Processing time (10-page native PDF) | M-04 | < 5 seconds | Automated benchmarks on reference hardware |
+| False positive rate (all entities) | M-05 | < 10% | Manual evaluation on clean documents |
+| API availability | M-06 | 99.9% (production target) | Uptime monitoring |
+| Redaction completeness | M-07 | 100% of detected entities are redacted | Post-sanitization text extraction verification |
+| Output file validity | M-08 | 100% of outputs are valid files | Automated validation (PDF parser, image decoder) |
 
 ---
 
 ## 16. Open Questions
 
-| ID | Question | Context | Proposed Answer |
-|----|----------|---------|-----------------|
-| Q-01 | Multi-language support priority? | Currently Spanish-only. Presidio supports 30+ languages natively. | Add English as P1, then French, German, Portuguese. Configurable per request. |
-| Q-02 | Should we support real-time streaming sanitization? | WebSocket for progress updates on large files | P3 — async job polling is simpler and sufficient for most use cases |
-| Q-03 | HIPAA vs GDPR first for compliance presets? | Both have defined PII categories | GDPR first (European market focus), HIPAA second |
-| Q-04 | Cloud vs on-premise as default deployment model? | SaaS is easier to monetize; on-premise is the privacy pitch | On-premise first (aligns with "your data stays with you" positioning), SaaS as optional |
-| Q-05 | Pricing model for future SaaS tier? | Need to cover compute (OCR is CPU-intensive) | Per-document or per-page pricing; free tier for low volume |
-| Q-06 | Should YuNet ONNX model be bundled in repo or downloaded at build time? | Currently downloaded via curl in Dockerfile | Keep download at build time — avoids bloating git repo with binary files |
-| Q-07 | Minimum confidence thresholds per entity type? | Currently global: 0.7 regex, 0.5 NER | Per-entity thresholds in custom policies (v0.4.0) |
-| Q-08 | Max file size limit for production? | Currently 20MB | May need to increase for batch processing; 50MB with async processing |
+| ID | Question | Impact | Suggested Resolution |
+|----|----------|--------|---------------------|
+| Q-01 | Multi-language support priority? Which languages after Spanish? | Defines Phase 6 scope | English first (largest market), then French, German, Portuguese |
+| Q-02 | Should we support real-time streaming sanitization? | API design, architecture | Not for MVP; consider WebSocket for progress reporting in Phase 5 |
+| Q-03 | HIPAA vs GDPR first for compliance presets? | Phase 6 prioritization | GDPR first (European market focus), HIPAA second |
+| Q-04 | Cloud vs on-premise as default deployment model? | Business model, pricing | Self-hosted first (privacy-conscious users), SaaS as optional tier |
+| Q-05 | Pricing model for SaaS tier? | Revenue, positioning | Freemium: free tier (N docs/month), paid by volume. Enterprise: flat rate |
+| Q-06 | Should the YuNet model be bundled in the repo or downloaded at build time? | Docker build reproducibility | Download at build time (current approach) — smaller repo, always latest model |
+| Q-07 | Optimal confidence thresholds per entity type? | Detection accuracy tradeoff | Start with defaults (0.7 regex, 0.5 NER), tune based on real-world evaluation |
+| Q-08 | Should we cache OCR results per page within a request? | Performance for multi-page scanned PDFs | Yes — OCR is expensive, cache TextPage objects during extraction |
 
 ---
 
 ## 17. Competitive Landscape
 
-| Solution | Type | PII Detection | Document Sanitization | Self-Hosted | Real Redaction | AI-Era Focus | Price |
-|----------|------|--------------|----------------------|-------------|----------------|-------------|-------|
-| **Saniflow** | Open source platform | Yes (text + visual) | Yes (PDF + images) | Yes | Yes (PyMuPDF) | Yes (MCP planned) | Free |
-| AWS Comprehend | Cloud API | Text only | No | No | N/A | No | Pay per character |
-| Google Cloud DLP | Cloud API | Text only | No (inspect only) | No | N/A | No | Pay per item |
-| Microsoft Presidio | Library | Text only | No (detection only) | Yes (lib) | N/A | No | Free |
-| Private AI | Commercial SaaS | Text + visual | Limited | Cloud only | Unknown | No | Enterprise pricing |
-| Adobe Acrobat Pro | Desktop app | No (manual) | Yes (manual) | Desktop | Yes | No | $22.99/mo |
-| DocuSign CLM | Enterprise | Limited | Limited | No | Overlay | No | Enterprise pricing |
+| Solution | Type | PII Detection | Document Sanitization | Self-Hosted | Real Redaction | AI-Native | Price |
+|----------|------|--------------|----------------------|-------------|---------------|-----------|-------|
+| **Saniflow** | Open-source platform | Text + visual | PDF + images | Yes | Yes (content removal) | MCP roadmap | Free |
+| AWS Comprehend | Cloud API | Text only | No (detection only) | No | N/A | No | Pay-per-use |
+| Google Cloud DLP | Cloud API | Text only | Partial (masking) | No | No (masking only) | No | Pay-per-use |
+| Microsoft Presidio | Open-source library | Text only | No (library only) | Yes (lib) | N/A | No | Free |
+| Private AI | Commercial SaaS | Text + some visual | Yes | Cloud or on-prem | Yes | No | Enterprise |
+| Adobe Acrobat | Desktop software | No (manual only) | Yes (manual) | Yes (desktop) | Yes | No | Subscription |
+| DocuSign CLM | Enterprise SaaS | Limited | Limited | No | No | No | Enterprise |
 
-**Saniflow's differentiation:**
-
-1. **Complete pipeline**: Detection AND sanitization in one API call (not just detection like Presidio/Comprehend).
-2. **Real redaction**: Content is permanently removed from PDFs, not just visually covered.
-3. **Self-hosted**: Your documents never leave your infrastructure. Unlike cloud DLP services, you don't send PII to a third party to detect PII.
-4. **AI-native**: Built for the AI era. MCP server integration means AI tools consume only sanitized content automatically.
-5. **Open source**: Inspect the code, verify the redaction, extend with custom recognizers. No black boxes.
-6. **Visual + text PII**: Face and signature detection alongside text PII — not just pattern matching.
+**Saniflow's positioning:**
+- **vs AWS/Google**: Self-hosted (data never leaves your infrastructure), performs actual document sanitization (not just detection), and is free and open source.
+- **vs Presidio**: Builds ON Presidio but provides a complete platform — API, visual detection, document redaction, Docker deployment. Presidio is a library; Saniflow is a product.
+- **vs Private AI**: Open-source, free, and fully self-hosted. No vendor lock-in, no licensing fees.
+- **vs Manual tools**: Automated, API-first, and scales to AI pipelines. Manual redaction does not scale.
+- **Unique differentiator**: MCP-native AI integration. No competitor offers an MCP server for AI tool sanitization. Saniflow is designed for the AI era from day one.
 
 ---
 
-*This PRD is the single source of truth for the Saniflow project. All implementation decisions should reference the requirement IDs (R-XXX-XX) defined herein. Updated as the project evolves.*
+*This document is the single source of truth for the Saniflow project. All design decisions, technical specifications, and roadmap items are tracked here. Last updated: 2026-03-23.*
