@@ -62,6 +62,11 @@ docker compose up --build
 
 The API is available at `http://localhost:8000`.
 
+```bash
+# Optional: enable API key auth for production
+echo "SANIFLOW_API_KEYS=your-key-here" >> .env
+```
+
 **Sanitize a file (get sanitized document back):**
 
 ```bash
@@ -102,6 +107,11 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
 - **Real redaction** -- Underlying content is removed from PDFs via PyMuPDF, not just covered with rectangles
 - **Stateless** -- No database, no sessions. Process and forget.
 - **Spanish-focused** -- Built with Spanish NER models and document patterns (spaCy + Presidio)
+- **API key authentication** -- Optional `X-API-Key` header auth via `SANIFLOW_API_KEYS` env var
+- **Rate limiting** -- Per-IP sliding window rate limiter (configurable, default 30 req/min)
+- **MCP Server** -- AI-native integration via Model Context Protocol (stdio transport)
+- **Image preprocessing** -- EXIF auto-rotation, document region extraction, OCR enhancement
+- **Async processing** -- Non-blocking pipeline execution via thread pool
 
 ---
 
@@ -119,7 +129,7 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
 
 | Format | Returns |
 |--------|---------|
-| `file` | Sanitized file as a binary download |
+| `file` | Sanitized file as binary download (no additional headers) |
 | `json` | JSON object with findings and summary |
 | `full` | JSON object with findings, summary, and the sanitized file as base64 |
 
@@ -151,15 +161,56 @@ The `file` field is only present in `full` format. Fields `original_text`, `page
 
 | Status | Condition                             |
 |--------|---------------------------------------|
-| 413    | File exceeds max size (default 20 MB) |
-| 415    | Unsupported file type                 |
-| 422    | Invalid level/format or corrupted file|
-| 500    | Internal processing error             |
+| 401    | Invalid or missing API key (when auth is enabled) |
+| 413    | File exceeds max size (default 20 MB)              |
+| 415    | Unsupported file type                              |
+| 422    | Invalid level/format or corrupted file             |
+| 429    | Rate limit exceeded                                |
+| 500    | Internal processing error                          |
 
 ### `GET /api/v1/health`
 
 ```json
 {"status": "healthy", "version": "0.1.0"}
+```
+
+---
+
+## MCP Server
+
+Saniflow exposes an MCP (Model Context Protocol) server for AI agent integration using stdio transport. It provides three tools:
+
+| Tool | Description |
+|------|-------------|
+| `sanitize_file` | Sanitize a local file by path |
+| `sanitize_base64` | Sanitize base64-encoded content |
+| `check_pii` | Inspect a file for PII without applying redactions |
+
+**Configure in Claude Code settings:**
+
+```json
+{
+  "mcpServers": {
+    "saniflow": {
+      "command": "python",
+      "args": ["-m", "app.mcp_server"],
+      "cwd": "/path/to/saniflow"
+    }
+  }
+}
+```
+
+**Or via Docker:**
+
+```json
+{
+  "mcpServers": {
+    "saniflow": {
+      "command": "docker",
+      "args": ["compose", "run", "--rm", "-i", "saniflow-mcp"]
+    }
+  }
+}
 ```
 
 ---
@@ -202,6 +253,11 @@ All environment variables are prefixed with `SANIFLOW_`. Copy `.env.example` to 
 | `SANIFLOW_TESSERACT_LANG`            | `spa`                                          | Tesseract OCR language               |
 | `SANIFLOW_SPACY_MODEL`               | `es_core_news_md`                              | spaCy model for NER                  |
 | `SANIFLOW_YUNET_MODEL_PATH`          | `/app/models/face_detection_yunet_2023mar.onnx` | Path to YuNet face detection model   |
+| `SANIFLOW_YUNET_SCORE_THRESHOLD`     | `0.4`                                          | Minimum confidence for face detection |
+| `SANIFLOW_API_KEYS`                  | (empty = disabled)                             | Comma-separated list of valid API keys |
+| `SANIFLOW_RATE_LIMIT`               | `30`                                           | Max requests per minute per client IP |
+| `SANIFLOW_DOCUMENT_EXTRACTION_ENABLED` | `true`                                       | Enable document region extraction from images |
+| `SANIFLOW_DOCUMENT_MIN_AREA_RATIO`  | `0.10`                                         | Minimum area ratio for document extraction (10%) |
 | `SANIFLOW_TEMP_DIR`                  | `/tmp/saniflow`                                | Temporary file directory             |
 
 ---
