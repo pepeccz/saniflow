@@ -42,6 +42,15 @@ _MIME_TO_EXT: dict[str, str] = {
     "application/pdf": ".pdf",
     "image/jpeg": ".jpg",
     "image/png": ".png",
+    "text/csv": ".csv",
+    "application/json": ".json",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "text/html": ".html",
+    "text/rtf": ".txt",
+    "application/rtf": ".txt",
+    "application/vnd.oasis.opendocument.spreadsheet": ".ods",
+    "application/vnd.oasis.opendocument.text": ".odt",
 }
 
 
@@ -177,6 +186,10 @@ def _build_sanitized_filename(original: str) -> str:
                 "application/pdf": {},
                 "image/jpeg": {},
                 "image/png": {},
+                "text/csv": {},
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {},
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {},
+                "text/html": {},
             },
         },
         401: {"model": ErrorResponse, "description": "Invalid or missing API key."},
@@ -184,8 +197,9 @@ def _build_sanitized_filename(original: str) -> str:
         415: {
             "model": ErrorResponse,
             "description": (
-                "Unsupported file type. Accepted formats: `application/pdf`, "
-                "`image/jpeg`, `image/png`."
+                "Unsupported file type. Accepted formats: PDF, images (JPEG, PNG, TIFF, BMP, WebP), "
+                "text (plain text, Markdown), spreadsheets (CSV, XLSX, ODS), "
+                "documents (DOCX, ODT, RTF), structured data (JSON, HTML)."
             ),
         },
         422: {
@@ -243,11 +257,13 @@ async def sanitize(
 ) -> StreamingResponse | SanitizeResponse | SanitizeFullResponse:
     """Sanitize a document by detecting and redacting personally identifiable information (PII).
 
-    Upload a PDF, JPEG, or PNG file and receive the sanitized output. The pipeline
-    extracts text and visual elements, runs PII detection (NLP-based and pattern-based
-    recognizers), and redacts the identified entities according to the chosen style.
+    Upload a file and receive the sanitized output. The pipeline extracts text and
+    visual elements, runs PII detection (NLP-based and pattern-based recognizers),
+    and redacts the identified entities according to the chosen style.
 
-    **Supported file types:** `application/pdf`, `image/jpeg`, `image/png`
+    **Supported file types:** PDF, images (JPEG, PNG, TIFF, BMP, WebP),
+    text (plain text, Markdown), spreadsheets (CSV, XLSX, ODS),
+    documents (DOCX, ODT, RTF), structured data (JSON, HTML)
 
     **Response formats:**
     - `file` (default) — returns the sanitized document as a binary download
@@ -423,7 +439,7 @@ async def sanitize_batch(
     request: Request,
     files: list[UploadFile] = File(
         ...,
-        description="One or more files to sanitize (PDF, JPEG, or PNG).",
+        description="One or more files to sanitize. Supports PDF, images, text, spreadsheets, documents, and structured data.",
     ),
     level: str = Form(
         default="standard",

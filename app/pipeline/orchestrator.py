@@ -31,6 +31,10 @@ from app.pipeline.extractors.text import TextExtractor
 from app.pipeline.sanitizers.image import ImageSanitizer
 from app.pipeline.sanitizers.pdf import PdfSanitizer
 from app.pipeline.sanitizers.text import TextSanitizer
+from app.pipeline.extractors.spreadsheet import CsvExtractor
+from app.pipeline.sanitizers.spreadsheet import CsvSanitizer
+from app.pipeline.extractors.structured import JsonExtractor
+from app.pipeline.sanitizers.structured import JsonSanitizer
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +62,62 @@ FORMAT_REGISTRY: dict[str, FormatHandler] = {
     # Text
     "text/plain": FormatHandler(TextExtractor, TextSanitizer, "text"),
     "text/markdown": FormatHandler(TextExtractor, TextSanitizer, "text"),
+    # Spreadsheet
+    "text/csv": FormatHandler(CsvExtractor, CsvSanitizer, "spreadsheet"),
+    # Structured
+    "application/json": FormatHandler(JsonExtractor, JsonSanitizer, "structured"),
 }
+
+# Optional XLSX / DOCX support (requires openpyxl / python-docx)
+try:
+    from app.pipeline.extractors.spreadsheet import XlsxExtractor
+    from app.pipeline.sanitizers.spreadsheet import XlsxSanitizer
+    from app.pipeline.extractors.document import DocxExtractor
+    from app.pipeline.sanitizers.document import DocxSanitizer
+
+    FORMAT_REGISTRY[
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    ] = FormatHandler(XlsxExtractor, XlsxSanitizer, "spreadsheet")
+    FORMAT_REGISTRY[
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ] = FormatHandler(DocxExtractor, DocxSanitizer, "document")
+except ImportError:
+    pass
+
+# Optional HTML support (requires beautifulsoup4)
+try:
+    from app.pipeline.extractors.structured import HtmlExtractor
+    from app.pipeline.sanitizers.structured import HtmlSanitizer
+
+    FORMAT_REGISTRY["text/html"] = FormatHandler(HtmlExtractor, HtmlSanitizer, "structured")
+except ImportError:
+    pass
+
+# Optional RTF support (requires striprtf)
+try:
+    from app.pipeline.extractors.document import RtfExtractor
+    from app.pipeline.sanitizers.document import RtfSanitizer
+
+    FORMAT_REGISTRY["text/rtf"] = FormatHandler(RtfExtractor, RtfSanitizer, "document")
+    FORMAT_REGISTRY["application/rtf"] = FormatHandler(RtfExtractor, RtfSanitizer, "document")
+except ImportError:
+    pass
+
+# Optional ODS / ODT support (requires odfpy)
+try:
+    from app.pipeline.extractors.spreadsheet import OdsExtractor
+    from app.pipeline.sanitizers.spreadsheet import OdsSanitizer
+    from app.pipeline.extractors.document import OdtExtractor
+    from app.pipeline.sanitizers.document import OdtSanitizer
+
+    FORMAT_REGISTRY[
+        "application/vnd.oasis.opendocument.spreadsheet"
+    ] = FormatHandler(OdsExtractor, OdsSanitizer, "spreadsheet")
+    FORMAT_REGISTRY[
+        "application/vnd.oasis.opendocument.text"
+    ] = FormatHandler(OdtExtractor, OdtSanitizer, "document")
+except ImportError:
+    pass
 
 # PDF magic bytes: "%PDF"
 _PDF_MAGIC = b"%PDF"

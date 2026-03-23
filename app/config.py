@@ -29,6 +29,15 @@ class Settings(BaseSettings):
         "image/webp",
         "text/plain",
         "text/markdown",
+        "text/csv",
+        "application/json",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/html",
+        "text/rtf",
+        "application/rtf",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.text",
     ]
 
     # Sanitization defaults
