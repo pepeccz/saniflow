@@ -17,7 +17,8 @@ from app.models.findings import (
     SanitizationLevel,
     SanitizationResult,
 )
-from app.pipeline.preprocessing import normalize_image
+from app.config import settings
+from app.pipeline.preprocessing import extract_document_region, normalize_image
 from app.pipeline.detectors.text_pii import TextPiiDetector
 from app.pipeline.detectors.visual import VisualDetector
 from app.pipeline.extractors.image import ImageExtractor
@@ -101,6 +102,8 @@ class SanitizationPipeline:
 
         # ── Step 0: Preprocess ─────────────────────────────────────────
         if not is_pdf:
+            if settings.DOCUMENT_EXTRACTION_ENABLED:
+                file_content = extract_document_region(file_content, filename)
             file_content = normalize_image(file_content, filename)
 
         # ── Step 1: Extract ───────────────────────────────────────────

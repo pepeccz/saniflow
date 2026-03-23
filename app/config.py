@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # Authentication
     API_KEYS: list[str] = []
 
+    # Document region extraction
+    DOCUMENT_EXTRACTION_ENABLED: bool = True
+    DOCUMENT_MIN_AREA_RATIO: float = 0.10  # 10% of image area
+
     # Temp storage
     TEMP_DIR: str = "/tmp/saniflow"
 

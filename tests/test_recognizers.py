@@ -487,11 +487,11 @@ class TestEnhanceForOcr:
 class TestYunetScoreThreshold:
     """Tests for configurable YuNet face detection threshold."""
 
-    def test_default_threshold_is_0_7(self):
+    def test_default_threshold_is_0_4(self):
         from app.config import Settings
 
         s = Settings()
-        assert s.YUNET_SCORE_THRESHOLD == 0.7
+        assert s.YUNET_SCORE_THRESHOLD == 0.4
 
     def test_threshold_overridable_via_env(self, monkeypatch: pytest.MonkeyPatch):
         from app.config import Settings

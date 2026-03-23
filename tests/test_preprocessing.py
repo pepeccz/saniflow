@@ -1,7 +1,7 @@
 """Unit tests for the image preprocessing module.
 
 Covers EXIF auto-rotation, Tesseract OSD fallback, graceful failure,
-and format preservation (JPEG / PNG).
+format preservation (JPEG / PNG), and document region extraction.
 """
 
 from __future__ import annotations
@@ -9,10 +9,12 @@ from __future__ import annotations
 from io import BytesIO
 from unittest.mock import patch
 
+import cv2
+import numpy as np
 import pytest
 from PIL import Image
 
-from app.pipeline.preprocessing import normalize_image
+from app.pipeline.preprocessing import extract_document_region, normalize_image
 
 
 # ---------------------------------------------------------------------------
@@ -159,3 +161,83 @@ class TestFormatPreservation:
         out = _image_from_bytes(result)
         assert out.mode == "RGB"
         assert out.format == "JPEG"
+
+
+# ---------------------------------------------------------------------------
+# Document region extraction helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_document_image(
+    bg_width: int = 1200,
+    bg_height: int = 900,
+    rect_width: int = 800,
+    rect_height: int = 500,
+    bg_color: int = 40,
+    rect_color: int = 240,
+) -> bytes:
+    """Create a synthetic image: white rectangle on dark background.
+
+    Returns JPEG-encoded bytes.
+    """
+    img = np.full((bg_height, bg_width, 3), bg_color, dtype=np.uint8)
+
+    x_offset = (bg_width - rect_width) // 2
+    y_offset = (bg_height - rect_height) // 2
+    img[y_offset : y_offset + rect_height, x_offset : x_offset + rect_width] = rect_color
+
+    _, encoded = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+    return encoded.tobytes()
+
+
+# ---------------------------------------------------------------------------
+# Document region extraction tests
+# ---------------------------------------------------------------------------
+
+
+class TestDocumentRegionExtraction:
+    """SPEC-DOC-01 to SPEC-DOC-04: Document region extraction."""
+
+    def test_document_detected(self) -> None:
+        """White rectangle on dark background should be extracted."""
+        raw = _make_document_image(
+            bg_width=1200, bg_height=900, rect_width=800, rect_height=500,
+        )
+        result = extract_document_region(raw, "photo.jpg")
+        # Result should be different from input (extraction happened)
+        assert result != raw
+        # Decode result and check dimensions are close to rectangle size
+        buf = np.frombuffer(result, np.uint8)
+        img = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+        assert img is not None
+        h, w = img.shape[:2]
+        # Extracted region should be approximately the rectangle dimensions
+        assert abs(w - 800) < 20
+        assert abs(h - 500) < 20
+
+    def test_small_contour_rejected(self) -> None:
+        """Rectangle below min area threshold should be rejected (fallback)."""
+        # Small 100x60 rectangle on 1200x900 → ~0.56% area, well below 10%
+        raw = _make_document_image(
+            bg_width=1200, bg_height=900, rect_width=100, rect_height=60,
+        )
+        result = extract_document_region(raw, "photo.jpg")
+        assert result == raw
+
+    def test_no_rectangle_fallback(self) -> None:
+        """Gradient image with no clear rectangle should fallback."""
+        # Create a smooth gradient — no sharp edges for Canny to detect
+        gradient = np.tile(
+            np.linspace(0, 255, 1200, dtype=np.uint8), (900, 1),
+        )
+        img = cv2.merge([gradient, gradient, gradient])
+        _, encoded = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+        raw = encoded.tobytes()
+        result = extract_document_region(raw, "photo.jpg")
+        assert result == raw
+
+    def test_invalid_bytes_fallback(self) -> None:
+        """Random invalid bytes should fallback gracefully."""
+        raw = b"this is not an image at all"
+        result = extract_document_region(raw, "photo.jpg")
+        assert result == raw
