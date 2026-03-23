@@ -403,3 +403,130 @@ class TestRateLimiting:
                 for _ in range(5):
                     resp = await client.get("/api/v1/health")
                     assert resp.status_code == 200
+
+
+class TestBatchEndpoint:
+    """POST /api/v1/sanitize/batch tests."""
+
+    @patch("app.api.routes.SanitizationPipeline")
+    async def test_batch_success(
+        self,
+        mock_pipeline_cls,
+        test_client,
+        sample_pdf_bytes: bytes,
+    ):
+        """Uploading multiple files returns per-file results."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.process.return_value = _fake_result()
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        async with test_client as client:
+            resp = await client.post(
+                "/api/v1/sanitize/batch",
+                files=[
+                    ("files", ("doc1.pdf", sample_pdf_bytes, "application/pdf")),
+                    ("files", ("doc2.pdf", sample_pdf_bytes, "application/pdf")),
+                ],
+                data={"level": "standard", "response_format": "json"},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_files"] == 2
+        assert body["successful"] == 2
+        assert body["failed"] == 0
+        assert len(body["results"]) == 2
+        for r in body["results"]:
+            assert r["status"] == "success"
+            assert r["findings"] is not None
+            assert r["summary"] is not None
+
+    @patch("app.api.routes.SanitizationPipeline")
+    async def test_batch_with_file_format_returns_base64(
+        self,
+        mock_pipeline_cls,
+        test_client,
+        sample_pdf_bytes: bytes,
+    ):
+        """Batch with response_format=file returns base64-encoded files."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.process.return_value = _fake_result()
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        async with test_client as client:
+            resp = await client.post(
+                "/api/v1/sanitize/batch",
+                files=[
+                    ("files", ("doc1.pdf", sample_pdf_bytes, "application/pdf")),
+                ],
+                data={"level": "standard", "response_format": "file"},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["results"][0]["file"] is not None
+        decoded = base64.b64decode(body["results"][0]["file"])
+        assert decoded == b"%PDF-fake-sanitized"
+
+    async def test_batch_exceeds_limit_returns_422(
+        self,
+        test_client,
+        sample_pdf_bytes: bytes,
+    ):
+        """Exceeding MAX_BATCH_SIZE returns 422."""
+        with patch("app.api.routes.settings") as mock_settings:
+            mock_settings.MAX_BATCH_SIZE = 2
+            mock_settings.SUPPORTED_FORMATS = [
+                "application/pdf",
+                "image/jpeg",
+                "image/png",
+            ]
+
+            async with test_client as client:
+                resp = await client.post(
+                    "/api/v1/sanitize/batch",
+                    files=[
+                        ("files", ("doc1.pdf", sample_pdf_bytes, "application/pdf")),
+                        ("files", ("doc2.pdf", sample_pdf_bytes, "application/pdf")),
+                        ("files", ("doc3.pdf", sample_pdf_bytes, "application/pdf")),
+                    ],
+                    data={"level": "standard"},
+                )
+
+        assert resp.status_code == 422
+        assert "Batch exceeds" in resp.json()["detail"]
+
+    @patch("app.api.routes.SanitizationPipeline")
+    async def test_batch_partial_failure(
+        self,
+        mock_pipeline_cls,
+        test_client,
+        sample_pdf_bytes: bytes,
+    ):
+        """If one file has unsupported type, others still process."""
+        mock_pipeline = MagicMock()
+        mock_pipeline.process.return_value = _fake_result()
+        mock_pipeline_cls.return_value = mock_pipeline
+
+        async with test_client as client:
+            resp = await client.post(
+                "/api/v1/sanitize/batch",
+                files=[
+                    ("files", ("doc1.pdf", sample_pdf_bytes, "application/pdf")),
+                    ("files", ("bad.xyz", b"not valid", "application/octet-stream")),
+                    ("files", ("doc3.pdf", sample_pdf_bytes, "application/pdf")),
+                ],
+                data={"level": "standard", "response_format": "json"},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total_files"] == 3
+        assert body["successful"] == 2
+        assert body["failed"] == 1
+        # Verify successful files
+        assert body["results"][0]["status"] == "success"
+        assert body["results"][2]["status"] == "success"
+        # Verify failed file
+        assert body["results"][1]["status"] == "error"
+        assert body["results"][1]["error"] is not None

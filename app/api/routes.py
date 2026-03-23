@@ -7,7 +7,7 @@ import logging
 import time
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -15,12 +15,15 @@ from app.audit import log_sanitization
 from app.api.auth import require_api_key
 from app.api.rate_limit import check_rate_limit
 from app.api.schemas import (
+    BatchFileResult,
+    BatchSanitizeResponse,
     ErrorResponse,
     FindingResponse,
     SanitizeFullResponse,
     SanitizeResponse,
 )
 from app.config import settings
+from app.metrics import metrics
 from app.models.findings import (
     EntityType,
     RedactionStyle,
@@ -299,6 +302,7 @@ async def sanitize(
             )
         except Exception:
             logger.debug("Audit logging failed", exc_info=True)
+        metrics.record_success(processing_time_ms, result.summary.by_type)
     except ValueError as exc:
         # Corrupt / unreadable files raise ValueError from extractors
         processing_time_ms = int((time.monotonic() - start_time) * 1000)
@@ -315,6 +319,7 @@ async def sanitize(
             )
         except Exception:
             logger.debug("Audit logging failed", exc_info=True)
+        metrics.record_failure(processing_time_ms)
         logger.warning("File processing failed (corrupt/unreadable): %s", exc)
         raise HTTPException(
             status_code=422,
@@ -337,6 +342,7 @@ async def sanitize(
             )
         except Exception:
             logger.debug("Audit logging failed", exc_info=True)
+        metrics.record_failure(processing_time_ms)
         logger.exception("Unexpected error during sanitization")
         raise HTTPException(
             status_code=500,
@@ -378,4 +384,201 @@ async def sanitize(
         headers={
             "Content-Disposition": f'attachment; filename="{output_filename}"',
         },
+    )
+
+
+@router.get(
+    "/metrics",
+    tags=["Health"],
+    summary="Get processing metrics",
+    response_description="Current in-memory processing metrics (resets on restart).",
+)
+async def get_metrics() -> dict:
+    """Return current processing metrics.
+
+    This endpoint does **not** require authentication — it exposes
+    operational counters only, never PII.
+    """
+    return metrics.snapshot()
+
+
+@router.post(
+    "/sanitize/batch",
+    response_model=BatchSanitizeResponse,
+    tags=["Sanitization"],
+    summary="Sanitize multiple documents in a single request",
+    response_description="Per-file sanitization results with aggregated counts.",
+    responses={
+        200: {"description": "Batch processed successfully (individual files may still have errors)."},
+        401: {"model": ErrorResponse, "description": "Invalid or missing API key."},
+        422: {
+            "model": ErrorResponse,
+            "description": "Batch exceeds maximum size, or invalid parameter values.",
+        },
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded."},
+    },
+    dependencies=[Depends(require_api_key), Depends(check_rate_limit)],
+)
+async def sanitize_batch(
+    request: Request,
+    files: list[UploadFile] = File(
+        ...,
+        description="One or more files to sanitize (PDF, JPEG, or PNG).",
+    ),
+    level: str = Form(
+        default="standard",
+        description="Sanitization level: `standard` or `strict`.",
+    ),
+    response_format: str = Form(
+        default="json",
+        description=(
+            "Controls the shape of per-file results. "
+            "`json` returns findings only. "
+            "`file` or `full` includes base64-encoded sanitized content."
+        ),
+    ),
+    redaction_style: str = Form(
+        default="black",
+        description="Redaction style: `black`, `blur`, or `placeholder`.",
+    ),
+    redact_entities: str = Form(
+        default="",
+        description="Comma-separated entity types to redact. Empty = all.",
+    ),
+) -> BatchSanitizeResponse:
+    """Sanitize multiple documents in a single batch request.
+
+    Each file is processed independently — if one file fails, the remaining
+    files are still processed. Results include per-file status, findings,
+    and optional base64-encoded sanitized content.
+    """
+    # --- Validate batch size ---
+    if len(files) > settings.MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Batch exceeds maximum size of {settings.MAX_BATCH_SIZE} files",
+        )
+
+    # --- Validate shared params (fail fast) ---
+    validated_level = _validate_level(level)
+    validated_format = _validate_response_format(response_format)
+    validated_style = _validate_redaction_style(redaction_style)
+    parsed_entities = _parse_redact_entities(redact_entities)
+
+    # For batch, we always return JSON with optional base64 content.
+    # Map "file" format to "full" so the pipeline produces sanitized bytes.
+    pipeline_format = (
+        ResponseFormat.FULL if validated_format == ResponseFormat.FILE else validated_format
+    )
+
+    results: list[BatchFileResult] = []
+    successful = 0
+    failed = 0
+
+    for upload_file in files:
+        filename = upload_file.filename or "document"
+        start_time = time.monotonic()
+
+        try:
+            # Validate content type
+            _validate_content_type(upload_file.content_type)
+
+            # Read and validate size
+            file_content = await upload_file.read()
+            _validate_file_size(len(file_content))
+
+            # Process
+            batch_pipeline = SanitizationPipeline()
+            file_result: SanitizationResult = await run_in_threadpool(
+                batch_pipeline.process,
+                file_content=file_content,
+                filename=filename,
+                level=validated_level,
+                response_format=pipeline_format,
+                redaction_style=validated_style,
+                redact_entities=parsed_entities,
+            )
+            processing_time_ms = int((time.monotonic() - start_time) * 1000)
+
+            # Audit log for this file
+            try:
+                log_sanitization(
+                    file_content=file_content,
+                    filename=filename,
+                    level=validated_level.value,
+                    result=file_result,
+                    processing_time_ms=processing_time_ms,
+                    source="api",
+                    client_ip=request.client.host if request.client else None,
+                )
+            except Exception:
+                logger.debug("Audit logging failed for %s", filename, exc_info=True)
+
+            # Build per-file result
+            findings = _build_findings_response(file_result)
+            encoded_file = None
+            if validated_format in (ResponseFormat.FILE, ResponseFormat.FULL) and file_result.sanitized_content is not None:
+                encoded_file = base64.b64encode(file_result.sanitized_content).decode("ascii")
+
+            results.append(BatchFileResult(
+                filename=filename,
+                status="success",
+                findings=findings,
+                summary=file_result.summary,
+                file=encoded_file,
+            ))
+            successful += 1
+
+        except HTTPException as exc:
+            processing_time_ms = int((time.monotonic() - start_time) * 1000)
+            try:
+                log_sanitization(
+                    file_content=b"",
+                    filename=filename,
+                    level=validated_level.value,
+                    result=None,
+                    processing_time_ms=processing_time_ms,
+                    source="api",
+                    client_ip=request.client.host if request.client else None,
+                    error=exc.detail,
+                )
+            except Exception:
+                logger.debug("Audit logging failed for %s", filename, exc_info=True)
+
+            results.append(BatchFileResult(
+                filename=filename,
+                status="error",
+                error=exc.detail,
+            ))
+            failed += 1
+
+        except Exception as exc:
+            processing_time_ms = int((time.monotonic() - start_time) * 1000)
+            error_msg = str(exc) if isinstance(exc, ValueError) else "Internal processing error"
+            try:
+                log_sanitization(
+                    file_content=b"",
+                    filename=filename,
+                    level=validated_level.value,
+                    result=None,
+                    processing_time_ms=processing_time_ms,
+                    source="api",
+                    client_ip=request.client.host if request.client else None,
+                    error=error_msg,
+                )
+            except Exception:
+                logger.debug("Audit logging failed for %s", filename, exc_info=True)
+
+            results.append(BatchFileResult(
+                filename=filename,
+                status="error",
+                error=error_msg,
+            ))
+            failed += 1
+
+    return BatchSanitizeResponse(
+        results=results,
+        total_files=len(files),
+        successful=successful,
+        failed=failed,
     )

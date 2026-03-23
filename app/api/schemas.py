@@ -51,6 +51,50 @@ class SanitizeFullResponse(SanitizeResponse):
     )
 
 
+class BatchFileResult(BaseModel):
+    """Result of sanitizing a single file within a batch request."""
+
+    filename: str = Field(
+        description="Original filename of the uploaded file.",
+    )
+    status: str = Field(
+        description="Processing status: `success` or `error`.",
+    )
+    findings: list[FindingResponse] | None = Field(
+        default=None,
+        description="List of PII detections found in the document. Null on error.",
+    )
+    summary: FindingSummary | None = Field(
+        default=None,
+        description="Aggregated statistics for this file. Null on error.",
+    )
+    file: str | None = Field(
+        default=None,
+        description="Base64-encoded sanitized document (only when response_format is `file` or `full`).",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Error message if processing failed for this file.",
+    )
+
+
+class BatchSanitizeResponse(BaseModel):
+    """Response containing per-file results for a batch sanitization request."""
+
+    results: list[BatchFileResult] = Field(
+        description="Per-file sanitization results.",
+    )
+    total_files: int = Field(
+        description="Total number of files in the batch.",
+    )
+    successful: int = Field(
+        description="Number of files processed successfully.",
+    )
+    failed: int = Field(
+        description="Number of files that failed processing.",
+    )
+
+
 class HealthResponse(BaseModel):
     """Health check response indicating service status."""
 

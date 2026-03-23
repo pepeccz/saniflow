@@ -24,6 +24,7 @@ from app.mcp_server import (
     _validate_file,
     check_pii,
     sanitize_base64,
+    sanitize_batch,
     sanitize_file,
 )
 
@@ -260,3 +261,64 @@ class TestCheckPii:
         pdf_path.write_bytes(b"%PDF-1.4 test")
         result = await check_pii(file_path=str(pdf_path))
         assert "error" in result
+
+
+class TestSanitizeBatch:
+    """Tests for the ``sanitize_batch`` MCP tool."""
+
+    @patch("app.mcp_server._run_pipeline")
+    async def test_batch_success(self, mock_pipeline, tmp_path: Path):
+        """Multiple valid files are processed successfully."""
+        pdf1 = tmp_path / "doc1.pdf"
+        pdf2 = tmp_path / "doc2.pdf"
+        pdf1.write_bytes(b"%PDF-1.4 content one")
+        pdf2.write_bytes(b"%PDF-1.4 content two")
+
+        mock_pipeline.return_value = _make_result(filename="doc.pdf")
+
+        result = await sanitize_batch(
+            file_paths=f"{pdf1},{pdf2}",
+            level="standard",
+        )
+
+        assert result["total_files"] == 2
+        assert result["successful"] == 2
+        assert result["failed"] == 0
+        assert len(result["results"]) == 2
+        for r in result["results"]:
+            assert r["status"] == "success"
+
+    async def test_batch_exceeds_limit(self, tmp_path: Path):
+        """Exceeding MAX_BATCH_SIZE returns an error."""
+        paths = []
+        for i in range(15):
+            p = tmp_path / f"doc{i}.pdf"
+            p.write_bytes(b"%PDF-1.4 test")
+            paths.append(str(p))
+
+        with patch("app.mcp_server.settings") as mock_settings:
+            mock_settings.MAX_BATCH_SIZE = 10
+            mock_settings.MAX_FILE_SIZE = 20 * 1024 * 1024
+            result = await sanitize_batch(file_paths=",".join(paths))
+
+        assert "error" in result
+        assert "Batch exceeds" in result["error"]
+
+    @patch("app.mcp_server._run_pipeline")
+    async def test_batch_partial_failure(self, mock_pipeline, tmp_path: Path):
+        """If one file is invalid, others still process."""
+        pdf1 = tmp_path / "doc1.pdf"
+        pdf1.write_bytes(b"%PDF-1.4 content")
+        missing = tmp_path / "nonexistent.pdf"
+
+        mock_pipeline.return_value = _make_result(filename="doc1.pdf")
+
+        result = await sanitize_batch(
+            file_paths=f"{pdf1},{missing}",
+        )
+
+        assert result["total_files"] == 2
+        assert result["successful"] == 1
+        assert result["failed"] == 1
+        assert result["results"][0]["status"] == "success"
+        assert result["results"][1]["status"] == "error"

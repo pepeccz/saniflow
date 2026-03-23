@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     # File constraints
     MAX_FILE_SIZE: int = 20 * 1024 * 1024  # 20 MB
+    MAX_BATCH_SIZE: int = 10  # max files per batch request
     SUPPORTED_FORMATS: list[str] = [
         "application/pdf",
         "image/jpeg",
@@ -70,6 +71,10 @@ class Settings(BaseSettings):
         "driver license", "medical condition", "medication", "ip address",
         "bank account", "tax identification number", "vehicle registration",
     ]
+
+    # Logging
+    LOG_LEVEL: str = "INFO"
+    LOG_FORMAT: str = "json"  # "json" for production, "text" for development
 
     # Temp storage
     TEMP_DIR: str = "/tmp/saniflow"

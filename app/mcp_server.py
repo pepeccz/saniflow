@@ -325,6 +325,105 @@ async def check_pii(
     }
 
 
+@mcp.tool()
+async def sanitize_batch(
+    file_paths: str,
+    level: str = "standard",
+    response_format: str = "file",
+    redaction_style: str = "black",
+    redact_entities: str = "",
+) -> dict:
+    """Sanitize multiple documents in a single batch call.
+
+    Args:
+        file_paths: Comma-separated list of absolute file paths (PDF, JPEG, or PNG).
+        level: "standard" (text PII) or "strict" (text + visual PII like faces/signatures).
+        response_format: "file" returns sanitized file paths + findings, "json" returns findings only.
+        redaction_style: "black" (default), "blur" (images only), or "placeholder".
+        redact_entities: Comma-separated entity types to redact (e.g. "PERSON_NAME,EMAIL"). Empty = all.
+    """
+    paths = [Path(p.strip()) for p in file_paths.split(",") if p.strip()]
+
+    if len(paths) > settings.MAX_BATCH_SIZE:
+        return {"error": f"Batch exceeds maximum size of {settings.MAX_BATCH_SIZE} files"}
+
+    san_level = _parse_level(level)
+    fmt = _parse_format(response_format)
+    san_style = _parse_style(redaction_style)
+    parsed_entities = _parse_redact_entities(redact_entities)
+
+    results: list[dict] = []
+    successful = 0
+    failed = 0
+
+    for path in paths:
+        if err := _validate_file(path):
+            results.append({"file": str(path), "status": "error", "error": err})
+            failed += 1
+            continue
+
+        file_content = path.read_bytes()
+        start_time = time.monotonic()
+
+        try:
+            result = await asyncio.to_thread(
+                _run_pipeline, file_content, path.name, san_level, fmt,
+                san_style, parsed_entities,
+            )
+            processing_time_ms = int((time.monotonic() - start_time) * 1000)
+            try:
+                log_sanitization(
+                    file_content=file_content,
+                    filename=path.name,
+                    level=san_level.value,
+                    result=result,
+                    processing_time_ms=processing_time_ms,
+                    source="mcp",
+                )
+            except Exception:
+                logger.debug("Audit logging failed", exc_info=True)
+
+            file_result: dict = {
+                "file": str(path),
+                "status": "success",
+                "findings": _findings_to_dicts(result),
+                "summary": result.summary.model_dump(),
+            }
+
+            if result.sanitized_content is not None:
+                output_path = path.parent / result.output_filename
+                output_path.write_bytes(result.sanitized_content)
+                file_result["sanitized_file"] = str(output_path)
+
+            results.append(file_result)
+            successful += 1
+
+        except Exception as exc:
+            processing_time_ms = int((time.monotonic() - start_time) * 1000)
+            try:
+                log_sanitization(
+                    file_content=file_content,
+                    filename=path.name,
+                    level=san_level.value,
+                    result=None,
+                    processing_time_ms=processing_time_ms,
+                    source="mcp",
+                    error=str(exc),
+                )
+            except Exception:
+                logger.debug("Audit logging failed", exc_info=True)
+            logger.exception("Pipeline error processing %s", path)
+            results.append({"file": str(path), "status": "error", "error": f"Processing error: {exc}"})
+            failed += 1
+
+    return {
+        "results": results,
+        "total_files": len(paths),
+        "successful": successful,
+        "failed": failed,
+    }
+
+
 # ── Resource ─────────────────────────────────────────────────────────
 
 
