@@ -14,6 +14,7 @@ from __future__ import annotations
 from presidio_analyzer import Pattern, PatternRecognizer
 
 PERSON_DENY_LIST: frozenset[str] = frozenset({
+    # Insurance / legal singular terms
     "condiciones",
     "generales",
     "particulares",
@@ -41,6 +42,54 @@ PERSON_DENY_LIST: frozenset[str] = frozenset({
     "juzgado",
     "cláusula",
     "boletín",
+    # Insurance / legal plurals (common false-positive triggers)
+    "volcánicas",
+    "huracanes",
+    "asegurados",
+    "beneficiarios",
+    "terceros",
+    "daños",
+    "perjuicios",
+    "gastos",
+    "riesgos",
+    "coberturas",
+    "exclusiones",
+    "prestaciones",
+    "obligaciones",
+    "condiciones",
+    "cláusulas",
+    "garantías",
+    "indemnizaciones",
+    "primas",
+    "reclamaciones",
+    "siniestros",
+    "erupciones",
+    # Preposition / conjunction-like words after commas
+    "además",
+    "excepto",
+    "siempre",
+    "mientras",
+    "aunque",
+    "incluso",
+    "mediante",
+    "respecto",
+    # Common nouns appearing as false-positive first words
+    "recibo",
+    "contrato",
+    "vigencia",
+    "importe",
+    "plazo",
+    "servicio",
+    "objeto",
+    "acuerdo",
+    "ámbito",
+    "alcance",
+    "efecto",
+    "supuesto",
+    "contendrá",
+    # Street / location words
+    "cardenal",
+    "gardoqui",
 })
 
 

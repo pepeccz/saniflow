@@ -79,6 +79,11 @@ def _filter_person_findings(
             continue
         if all(t.lower() in deny_list for t in tokens):
             continue
+        # Reject if ANY token (case-insensitive, ignoring accents on the
+        # comma-adjacent word) is in the deny list — a real person name
+        # will never contain insurance/legal jargon words.
+        if any(t.lower() in deny_list for t in tokens):
+            continue
         # Reject if ANY token is a common Spanish stopword — real names
         # never contain prepositions, articles, or conjunctions.
         if any(t.lower() in _ES_STOPWORDS for t in tokens):

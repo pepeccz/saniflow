@@ -299,6 +299,25 @@ class TestFilterPersonFindings:
         assert len(result) == 1
         assert result[0].original_text == "Cabeza Cruz, Pepe"
 
+    # -- Any-token deny-list filter tests (false-positive reduction) --
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Erupciones Volcánicas, Huracanes",
+            "Terceros Asegurados, Beneficiarios",
+            "Recibo Contendrá, Además",
+            "Cardenal Gardoqui, Bilbao",
+            "Gastos Indemnizaciones, Primas",
+            "Coberturas Exclusiones, Riesgos",
+        ],
+    )
+    def test_any_deny_token_rejected(self, text: str):
+        """Findings with ANY token in the deny list should be rejected."""
+        findings = [_make_person_finding(text)]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert result == [], f"Expected rejection for '{text}'"
+
 
 # ===========================================================================
 # ES_PERSON_INVERTED regex — case sensitivity & newline boundary
