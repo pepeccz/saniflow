@@ -142,28 +142,123 @@ def _build_sanitized_filename(original: str) -> str:
 @router.post(
     "/sanitize",
     response_model=None,
+    tags=["Sanitization"],
+    summary="Sanitize a document by detecting and redacting PII",
+    response_description=(
+        "The sanitized file as a download (default), a JSON findings report, "
+        "or both — depending on the chosen `response_format`."
+    ),
     responses={
-        401: {"model": ErrorResponse, "description": "Invalid or missing API key"},
-        413: {"model": ErrorResponse, "description": "File too large"},
-        415: {"model": ErrorResponse, "description": "Unsupported file type"},
-        422: {"model": ErrorResponse, "description": "Invalid input or corrupted file"},
-        429: {"model": ErrorResponse, "description": "Too many requests"},
-        500: {"model": ErrorResponse, "description": "Internal processing error"},
+        200: {
+            "description": "Sanitized result returned successfully.",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "findings": [
+                            {
+                                "entity_type": "EMAIL",
+                                "original_text": "user@example.com",
+                                "score": 0.95,
+                                "page": 1,
+                                "bbox": None,
+                                "redacted": True,
+                            }
+                        ],
+                        "summary": {
+                            "total_findings": 1,
+                            "by_type": {"EMAIL": 1},
+                            "level_applied": "standard",
+                        },
+                    }
+                },
+                "application/pdf": {},
+                "image/jpeg": {},
+                "image/png": {},
+            },
+        },
+        401: {"model": ErrorResponse, "description": "Invalid or missing API key."},
+        413: {"model": ErrorResponse, "description": "File exceeds the maximum allowed size."},
+        415: {
+            "model": ErrorResponse,
+            "description": (
+                "Unsupported file type. Accepted formats: `application/pdf`, "
+                "`image/jpeg`, `image/png`."
+            ),
+        },
+        422: {
+            "model": ErrorResponse,
+            "description": (
+                "Validation error — invalid sanitization level, response format, "
+                "redaction style, entity type, or the uploaded file is corrupted."
+            ),
+        },
+        429: {"model": ErrorResponse, "description": "Rate limit exceeded. Retry after the interval in `X-RateLimit-Reset`."},
+        500: {"model": ErrorResponse, "description": "Internal processing error."},
     },
     dependencies=[Depends(require_api_key), Depends(check_rate_limit)],
 )
 async def sanitize(
     request: Request,
     file: UploadFile,
-    level: str = Form(default="standard"),
-    response_format: str = Form(default="file"),
-    redaction_style: str = Form(default="black"),
-    redact_entities: str = Form(default=""),
+    level: str = Form(
+        default="standard",
+        description=(
+            "Sanitization level controlling detection sensitivity. "
+            "`standard` covers common PII; `strict` applies aggressive detection. "
+            "Allowed values: `standard`, `strict`."
+        ),
+    ),
+    response_format: str = Form(
+        default="file",
+        description=(
+            "Controls the shape of the response. "
+            "`file` returns the sanitized document as a download. "
+            "`json` returns only the findings report. "
+            "`full` returns both the findings and the base64-encoded file. "
+            "Allowed values: `file`, `json`, `full`."
+        ),
+    ),
+    redaction_style: str = Form(
+        default="black",
+        description=(
+            "Visual style used to redact detected PII regions. "
+            "`black` fills with a solid black box. "
+            "`blur` applies a Gaussian blur. "
+            "`placeholder` replaces text with a label (e.g. `[REDACTED]`). "
+            "Allowed values: `black`, `blur`, `placeholder`."
+        ),
+    ),
+    redact_entities: str = Form(
+        default="",
+        description=(
+            "Comma-separated list of entity types to redact. "
+            "When empty, all detected entities are redacted. "
+            "Allowed values: `PERSON_NAME`, `DNI_NIE`, `EMAIL`, `PHONE`, "
+            "`IBAN`, `ADDRESS`, `DATE_OF_BIRTH`, `FACE`, `SIGNATURE`."
+        ),
+    ),
 ) -> StreamingResponse | SanitizeResponse | SanitizeFullResponse:
-    """Sanitize a document by detecting and redacting PII.
+    """Sanitize a document by detecting and redacting personally identifiable information (PII).
 
-    Accepts PDF, JPEG, or PNG files. Returns the sanitized file, a JSON
-    findings report, or both, depending on *response_format*.
+    Upload a PDF, JPEG, or PNG file and receive the sanitized output. The pipeline
+    extracts text and visual elements, runs PII detection (NLP-based and pattern-based
+    recognizers), and redacts the identified entities according to the chosen style.
+
+    **Supported file types:** `application/pdf`, `image/jpeg`, `image/png`
+
+    **Response formats:**
+    - `file` (default) — returns the sanitized document as a binary download
+    - `json` — returns a JSON object with detected findings and summary statistics
+    - `full` — returns findings, summary, and the sanitized file as a base64-encoded string
+
+    **Redaction styles:**
+    - `black` (default) — solid black box over PII regions
+    - `blur` — Gaussian blur applied to PII regions
+    - `placeholder` — text replaced with a descriptive label
+
+    **Selective redaction:**
+    Use `redact_entities` to limit redaction to specific entity types.
+    When omitted or empty, all detected entity types are redacted.
     """
     # --- Validate inputs (fail fast) ---
     content_type = _validate_content_type(file.content_type)

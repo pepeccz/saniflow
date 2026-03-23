@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from app.api.routes import router
-from app.api.schemas import HealthResponse
+from app.api.schemas import ErrorResponse, HealthResponse
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -35,10 +35,43 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Saniflow")
 
 
+tags_metadata = [
+    {
+        "name": "Sanitization",
+        "description": (
+            "Upload documents (PDF, JPEG, PNG) to detect and redact personally "
+            "identifiable information (PII). Supports configurable sanitization "
+            "levels, redaction styles, and selective entity targeting."
+        ),
+    },
+    {
+        "name": "Health",
+        "description": "Operational health and readiness checks.",
+    },
+]
+
 app = FastAPI(
-    title="Saniflow",
+    title="Saniflow API",
     version="0.1.0",
-    description="Sanitization pipeline for PII detection and redaction in documents and images",
+    description=(
+        "**Saniflow** is a document sanitization pipeline that automatically detects "
+        "and redacts personally identifiable information (PII) from documents and images.\n\n"
+        "### Key Features\n\n"
+        "- **Multi-format support** — PDF, JPEG, and PNG files\n"
+        "- **PII detection** — Names, DNI/NIE, emails, phone numbers, IBANs, "
+        "addresses, dates of birth, faces, and signatures\n"
+        "- **Configurable redaction** — Black-box, blur, or placeholder replacement\n"
+        "- **Flexible output** — Download the sanitized file, get a JSON findings report, "
+        "or both\n"
+        "- **Selective redaction** — Choose which entity types to redact\n"
+        "- **Sanitization levels** — `standard` or `strict` for different privacy requirements\n\n"
+        "### Authentication\n\n"
+        "All endpoints require an API key passed via the `X-API-Key` header.\n\n"
+        "### Rate Limiting\n\n"
+        "Responses include `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and "
+        "`X-RateLimit-Reset` headers."
+    ),
+    openapi_tags=tags_metadata,
     lifespan=lifespan,
 )
 
@@ -77,7 +110,20 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     )
 
 
-@app.get("/api/v1/health", response_model=HealthResponse)
+@app.get(
+    "/api/v1/health",
+    response_model=HealthResponse,
+    tags=["Health"],
+    summary="Check service health",
+    response_description="Service status and version information.",
+    responses={
+        500: {"model": ErrorResponse, "description": "Internal processing error"},
+    },
+)
 async def health_check() -> HealthResponse:
-    """Health check endpoint."""
+    """Return the current health status and version of the Saniflow service.
+
+    This endpoint does not require authentication and can be used by load
+    balancers or orchestrators for liveness and readiness probes.
+    """
     return HealthResponse(status="healthy", version="0.1.0")
