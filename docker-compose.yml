@@ -14,5 +14,14 @@ services:
       retries: 3
       start_period: 30s
 
+  saniflow-mcp:
+    build: .
+    command: ["python", "-m", "app.mcp_server"]
+    stdin_open: true
+    env_file:
+      - .env
+    volumes:
+      - saniflow-tmp:/tmp/saniflow
+
 volumes:
   saniflow-tmp:
