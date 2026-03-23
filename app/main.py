@@ -20,6 +20,17 @@ async def lifespan(app: FastAPI):
     temp_dir = Path(settings.TEMP_DIR)
     temp_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Created temp directory: %s", temp_dir)
+
+    # Configure dedicated audit logger (JSON Lines → file, no propagation)
+    if settings.AUDIT_ENABLED:
+        audit_logger = logging.getLogger("saniflow.audit")
+        audit_logger.setLevel(logging.INFO)
+        audit_logger.propagate = False
+        audit_handler = logging.FileHandler(settings.AUDIT_LOG_PATH)
+        audit_handler.setFormatter(logging.Formatter("%(message)s"))
+        audit_logger.addHandler(audit_handler)
+        logger.info("Audit logging enabled → %s", settings.AUDIT_LOG_PATH)
+
     yield
     logger.info("Shutting down Saniflow")
 

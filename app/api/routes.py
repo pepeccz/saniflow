@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
+from app.audit import log_sanitization
 from app.api.auth import require_api_key
 from app.api.rate_limit import check_rate_limit
 from app.api.schemas import (
@@ -141,6 +143,7 @@ async def sanitize(
     filename = file.filename or "document"
 
     # --- Process through pipeline ---
+    start_time = time.monotonic()
     try:
         pipeline = SanitizationPipeline()
         result: SanitizationResult = await run_in_threadpool(
@@ -150,8 +153,35 @@ async def sanitize(
             level=validated_level,
             response_format=validated_format,
         )
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_content,
+                filename=filename,
+                level=validated_level.value,
+                result=result,
+                processing_time_ms=processing_time_ms,
+                source="api",
+                client_ip=request.client.host if request.client else None,
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
     except ValueError as exc:
         # Corrupt / unreadable files raise ValueError from extractors
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_content,
+                filename=filename,
+                level=validated_level.value,
+                result=None,
+                processing_time_ms=processing_time_ms,
+                source="api",
+                client_ip=request.client.host if request.client else None,
+                error=str(exc),
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
         logger.warning("File processing failed (corrupt/unreadable): %s", exc)
         raise HTTPException(
             status_code=422,
@@ -160,6 +190,20 @@ async def sanitize(
     except HTTPException:
         raise
     except Exception:
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_content,
+                filename=filename,
+                level=validated_level.value,
+                result=None,
+                processing_time_ms=processing_time_ms,
+                source="api",
+                client_ip=request.client.host if request.client else None,
+                error="Internal processing error",
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
         logger.exception("Unexpected error during sanitization")
         raise HTTPException(
             status_code=500,

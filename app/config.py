@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     DOCUMENT_EXTRACTION_ENABLED: bool = True
     DOCUMENT_MIN_AREA_RATIO: float = 0.10  # 10% of image area
 
+    # Audit logging
+    AUDIT_ENABLED: bool = True
+    AUDIT_LOG_PATH: str = "audit.log"
+
     # Temp storage
     TEMP_DIR: str = "/tmp/saniflow"
 

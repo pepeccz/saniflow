@@ -6,10 +6,12 @@ import asyncio
 import base64
 import json
 import logging
+import time
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
+from app.audit import log_sanitization
 from app.config import settings
 from app.models.findings import (
     EntityType,
@@ -101,11 +103,37 @@ async def sanitize_file(
     fmt = _parse_format(response_format)
     file_content = path.read_bytes()
 
+    start_time = time.monotonic()
     try:
         result = await asyncio.to_thread(
             _run_pipeline, file_content, path.name, san_level, fmt
         )
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_content,
+                filename=path.name,
+                level=san_level.value,
+                result=result,
+                processing_time_ms=processing_time_ms,
+                source="mcp",
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
     except Exception as exc:
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_content,
+                filename=path.name,
+                level=san_level.value,
+                result=None,
+                processing_time_ms=processing_time_ms,
+                source="mcp",
+                error=str(exc),
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
         logger.exception("Pipeline error processing %s", file_path)
         return {"error": f"Processing error: {exc}"}
 
@@ -144,11 +172,37 @@ async def sanitize_base64(
 
     san_level = _parse_level(level)
 
+    start_time = time.monotonic()
     try:
         result = await asyncio.to_thread(
             _run_pipeline, file_bytes, filename, san_level, ResponseFormat.FILE
         )
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_bytes,
+                filename=filename,
+                level=san_level.value,
+                result=result,
+                processing_time_ms=processing_time_ms,
+                source="mcp",
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
     except Exception as exc:
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_bytes,
+                filename=filename,
+                level=san_level.value,
+                result=None,
+                processing_time_ms=processing_time_ms,
+                source="mcp",
+                error=str(exc),
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
         logger.exception("Pipeline error processing base64 content (%s)", filename)
         return {"error": f"Processing error: {exc}"}
 
@@ -186,11 +240,37 @@ async def check_pii(
     san_level = _parse_level(level)
     file_content = path.read_bytes()
 
+    start_time = time.monotonic()
     try:
         result = await asyncio.to_thread(
             _run_pipeline, file_content, path.name, san_level, ResponseFormat.JSON
         )
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_content,
+                filename=path.name,
+                level=san_level.value,
+                result=result,
+                processing_time_ms=processing_time_ms,
+                source="mcp",
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
     except Exception as exc:
+        processing_time_ms = int((time.monotonic() - start_time) * 1000)
+        try:
+            log_sanitization(
+                file_content=file_content,
+                filename=path.name,
+                level=san_level.value,
+                result=None,
+                processing_time_ms=processing_time_ms,
+                source="mcp",
+                error=str(exc),
+            )
+        except Exception:
+            logger.debug("Audit logging failed", exc_info=True)
         logger.exception("Pipeline error processing %s", file_path)
         return {"error": f"Processing error: {exc}"}
 
