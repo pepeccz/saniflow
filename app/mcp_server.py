@@ -110,7 +110,8 @@ async def sanitize_file(
         return {"error": f"Processing error: {exc}"}
 
     response: dict = {
-        "original_file": str(path),
+        "status": "success",
+        "file": str(path),
         "findings": _findings_to_dicts(result),
         "summary": result.summary.model_dump(),
     }
@@ -152,7 +153,8 @@ async def sanitize_base64(
         return {"error": f"Processing error: {exc}"}
 
     response: dict = {
-        "original_filename": filename,
+        "status": "success",
+        "file": filename,
         "findings": _findings_to_dicts(result),
         "summary": result.summary.model_dump(),
     }
@@ -193,6 +195,7 @@ async def check_pii(
         return {"error": f"Processing error: {exc}"}
 
     return {
+        "status": "success",
         "file": str(path),
         "has_pii": result.summary.total_findings > 0,
         "findings": _findings_to_dicts(result),

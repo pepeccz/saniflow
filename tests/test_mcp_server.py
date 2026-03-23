@@ -151,7 +151,8 @@ class TestSanitizeFile:
         result = await sanitize_file(file_path=str(pdf_path), level="standard")
 
         assert "error" not in result
-        assert result["original_file"] == str(pdf_path)
+        assert result["status"] == "success"
+        assert result["file"] == str(pdf_path)
         assert len(result["findings"]) == 1
         assert result["summary"]["total_findings"] == 1
         assert "sanitized_file" in result
@@ -202,7 +203,8 @@ class TestSanitizeBase64:
         result = await sanitize_base64(content=b64, filename="report.pdf")
 
         assert "error" not in result
-        assert result["original_filename"] == "report.pdf"
+        assert result["status"] == "success"
+        assert result["file"] == "report.pdf"
         assert len(result["findings"]) == 1
         assert "sanitized_content_base64" in result
         assert "output_filename" in result
