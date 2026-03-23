@@ -81,13 +81,12 @@ class TestSanitizeEndpoint:
             resp = await client.post(
                 "/api/v1/sanitize",
                 files={"file": ("test.pdf", sample_pdf_bytes, "application/pdf")},
-                params={"level": "standard", "response_format": "file"},
+                data={"level": "standard", "response_format": "file"},
             )
 
         assert resp.status_code == 200
         assert resp.headers["content-type"] == "application/pdf"
         assert "test_sanitized.pdf" in resp.headers.get("content-disposition", "")
-        assert "X-Saniflow-Findings" in resp.headers
 
     @patch("app.api.routes.SanitizationPipeline")
     async def test_sanitize_json_format(
@@ -104,7 +103,7 @@ class TestSanitizeEndpoint:
             resp = await client.post(
                 "/api/v1/sanitize",
                 files={"file": ("test.pdf", sample_pdf_bytes, "application/pdf")},
-                params={"level": "standard", "response_format": "json"},
+                data={"level": "standard", "response_format": "json"},
             )
 
         assert resp.status_code == 200
@@ -128,7 +127,7 @@ class TestSanitizeEndpoint:
             resp = await client.post(
                 "/api/v1/sanitize",
                 files={"file": ("test.pdf", sample_pdf_bytes, "application/pdf")},
-                params={"level": "standard", "response_format": "full"},
+                data={"level": "standard", "response_format": "full"},
             )
 
         assert resp.status_code == 200

@@ -13,6 +13,36 @@ from __future__ import annotations
 
 from presidio_analyzer import Pattern, PatternRecognizer
 
+PERSON_DENY_LIST: frozenset[str] = frozenset({
+    "condiciones",
+    "generales",
+    "particulares",
+    "seguro",
+    "seguros",
+    "mutua",
+    "aseguradora",
+    "póliza",
+    "tomador",
+    "mediador",
+    "beneficiario",
+    "siniestro",
+    "prima",
+    "cobertura",
+    "prestación",
+    "indemnización",
+    "franquicia",
+    "suplemento",
+    "anexo",
+    "artículo",
+    "reglamento",
+    "legislación",
+    "jurisdicción",
+    "tribunal",
+    "juzgado",
+    "cláusula",
+    "boletín",
+})
+
 
 class EsPersonRecognizer(PatternRecognizer):
     """Recognizer for Spanish person names in formal/inverted formats."""
@@ -28,15 +58,6 @@ class EsPersonRecognizer(PatternRecognizer):
                 r"(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ]+)?\b"
             ),
             score=0.7,
-        ),
-        # Two or more consecutive capitalized words (contextual — low base)
-        Pattern(
-            name="ES_PERSON_CONSECUTIVE",
-            regex=(
-                r"(?i)\b(?:[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ]+\s+)"
-                r"{1,3}[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ]+\b"
-            ),
-            score=0.3,
         ),
     ]
 

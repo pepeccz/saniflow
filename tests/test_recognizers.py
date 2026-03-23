@@ -14,6 +14,9 @@ import re
 
 import pytest
 
+from app.models.findings import EntityType, Finding
+from app.pipeline.detectors.recognizers.es_person import PERSON_DENY_LIST
+from app.pipeline.detectors.text_pii import _filter_person_findings, _selective_title_case
 from tests.conftest import PRESIDIO_AVAILABLE
 
 # ---------------------------------------------------------------------------
@@ -158,3 +161,114 @@ class TestEsAddressRecognizerInvalid:
     )
     def test_no_match(self, text: str):
         assert not _address_has_match(text), f"Unexpected match in '{text}'"
+
+
+# ===========================================================================
+# EsPersonRecognizer — CONSECUTIVE pattern removed
+# ===========================================================================
+
+
+class TestEsPersonConsecutiveRemoved:
+    """Verify ES_PERSON_CONSECUTIVE pattern is no longer registered."""
+
+    @pytest.mark.skipif(not PRESIDIO_AVAILABLE, reason="presidio not available")
+    def test_patterns_only_inverted(self):
+        from app.pipeline.detectors.recognizers.es_person import EsPersonRecognizer
+
+        recognizer = EsPersonRecognizer(supported_language="es")
+        pattern_names = [p.name for p in recognizer.patterns]
+        assert pattern_names == ["ES_PERSON_INVERTED"]
+
+
+# ===========================================================================
+# _selective_title_case
+# ===========================================================================
+
+
+class TestSelectiveTitleCase:
+    """Tests for selective title-case preprocessing."""
+
+    def test_all_caps_converted(self):
+        assert _selective_title_case("CABEZA CRUZ, PEPE") == "Cabeza Cruz, Pepe"
+
+    def test_mixed_case_unchanged(self):
+        text = "Condiciones Generales del Seguro"
+        assert _selective_title_case(text) == text
+
+    def test_lowercase_unchanged(self):
+        text = "esto es texto normal"
+        assert _selective_title_case(text) == text
+
+    def test_accented_all_caps(self):
+        assert _selective_title_case("ÁNGEL GARCÍA") == "Ángel García"
+
+    def test_length_invariant(self):
+        inputs = [
+            "CABEZA CRUZ, PEPE",
+            "Condiciones Generales del Seguro",
+            "ÁNGEL GARCÍA LÓPEZ",
+            "todo minúsculas",
+            "MIXTO y Normal TEXT",
+        ]
+        for text in inputs:
+            result = _selective_title_case(text)
+            assert len(result) == len(text), f"Length mismatch for {text!r}"
+
+    def test_single_uppercase_letter_untouched(self):
+        text = "A B C"
+        assert _selective_title_case(text) == text
+
+
+# ===========================================================================
+# _filter_person_findings
+# ===========================================================================
+
+
+def _make_person_finding(text: str, score: float = 0.85) -> Finding:
+    return Finding(entity_type=EntityType.PERSON_NAME, original_text=text, score=score)
+
+
+def _make_other_finding(text: str) -> Finding:
+    return Finding(entity_type=EntityType.IBAN, original_text=text, score=0.99)
+
+
+class TestFilterPersonFindings:
+    """Tests for post-detection PERSON_NAME filtering."""
+
+    def test_single_word_rejected(self):
+        findings = [_make_person_finding("Seguro")]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert result == []
+
+    def test_five_plus_tokens_rejected(self):
+        findings = [_make_person_finding("Juan García López Martínez Fernández")]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert result == []
+
+    def test_all_deny_list_tokens_rejected(self):
+        findings = [_make_person_finding("Condiciones Generales")]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert result == []
+
+    def test_valid_name_passes(self):
+        findings = [_make_person_finding("García López, María")]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert len(result) == 1
+        assert result[0].original_text == "García López, María"
+
+    def test_non_person_entities_untouched(self):
+        findings = [_make_other_finding("ES9121000418450200051332")]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert len(result) == 1
+
+    def test_mixed_findings_filtered_correctly(self):
+        findings = [
+            _make_person_finding("Seguro"),  # single word → out
+            _make_person_finding("García López"),  # valid → in
+            _make_other_finding("ES91210004"),  # non-person → in
+            _make_person_finding("Condiciones Generales"),  # deny list → out
+        ]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert len(result) == 2
+        assert result[0].original_text == "García López"
+        assert result[1].entity_type == EntityType.IBAN

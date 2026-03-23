@@ -9,6 +9,7 @@ SpanMap attached to the ExtractionResult.
 from __future__ import annotations
 
 import logging
+import re
 from typing import ClassVar
 
 from presidio_analyzer import AnalyzerEngine
@@ -20,10 +21,44 @@ from app.models.findings import BBox, EntityType, Finding, SanitizationLevel
 from app.pipeline.detectors.recognizers.es_address import EsAddressRecognizer
 from app.pipeline.detectors.recognizers.es_dob import EsDateOfBirthRecognizer
 from app.pipeline.detectors.recognizers.es_iban import EsIbanRecognizer
-from app.pipeline.detectors.recognizers.es_person import EsPersonRecognizer
+from app.pipeline.detectors.recognizers.es_person import (
+    PERSON_DENY_LIST,
+    EsPersonRecognizer,
+)
 from app.pipeline.detectors.recognizers.es_phone import EsPhoneRecognizer
 
 logger = logging.getLogger(__name__)
+
+# ── Preprocessing helpers ─────────────────────────────────────────────
+
+_ALL_CAPS_RE = re.compile(r"\b[A-ZÁÉÍÓÚÑ]{2,}\b")
+
+
+def _selective_title_case(text: str) -> str:
+    """Title-case only ALL-CAPS words, leaving mixed/lowercase text as-is."""
+    return _ALL_CAPS_RE.sub(lambda m: m.group().title(), text)
+
+
+def _filter_person_findings(
+    findings: list[Finding],
+    deny_list: frozenset[str],
+) -> list[Finding]:
+    """Filter out false-positive PERSON_NAME findings."""
+    filtered: list[Finding] = []
+    for f in findings:
+        if f.entity_type != EntityType.PERSON_NAME:
+            filtered.append(f)
+            continue
+        if f.original_text is None:
+            continue
+        tokens = [t.strip(",.") for t in f.original_text.split()]
+        if len(tokens) < 2 or len(tokens) > 4:
+            continue
+        if all(t.lower() in deny_list for t in tokens):
+            continue
+        filtered.append(f)
+    return filtered
+
 
 # ── Entity type mapping: Presidio name → our EntityType ──────────────
 
@@ -132,7 +167,7 @@ class TextPiiDetector:
         # Pre-process to Title Case so spaCy NER can recognise names in
         # ALL-CAPS text (e.g. "CABEZA CRUZ, PEPE" → "Cabeza Cruz, Pepe").
         # title() preserves string length, so character offsets stay valid.
-        analysis_text = text.title()
+        analysis_text = _selective_title_case(text)
 
         presidio_results = analyzer.analyze(
             text=analysis_text,
@@ -207,6 +242,8 @@ class TextPiiDetector:
                     bbox=bbox,
                 ),
             )
+
+        findings = _filter_person_findings(findings, PERSON_DENY_LIST)
 
         logger.info(
             "TextPiiDetector found %d entities (level=%s)",

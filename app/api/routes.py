@@ -6,7 +6,7 @@ import base64
 import logging
 from io import BytesIO
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.api.schemas import (
@@ -114,8 +114,8 @@ def _build_sanitized_filename(original: str) -> str:
 )
 async def sanitize(
     file: UploadFile,
-    level: str = "standard",
-    response_format: str = "file",
+    level: str = Form(default="standard"),
+    response_format: str = Form(default="file"),
 ) -> StreamingResponse | SanitizeResponse | SanitizeFullResponse:
     """Sanitize a document by detecting and redacting PII.
 
