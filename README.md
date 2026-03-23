@@ -1,22 +1,57 @@
-# Saniflow
+<div align="center">
 
-Stateless document sanitization API. Upload a PDF or image, get PII detected and redacted.
+<pre>
+                    ____              _  __ _
+                   / ___|  __ _ _ __ (_)/ _| | _____      __
+                   \___ \ / _` | '_ \| | |_| |/ _ \ \ /\ / /
+                    ___) | (_| | | | | |  _| | (_) \ V  V /
+                   |____/ \__,_|_| |_|_|_| |_|\___/ \_/\_/
+
+              +------------------------------------------+
+              |  DOCUMENT IN         CLEAN DOCUMENT OUT  |
+              |                                          |
+              |   [PII]  ------>  [ -------- ]  -------> |
+              |   Names             [REDACTED]       AI  |
+              |   DNIs              [REDACTED]           |
+              |   IBANs             [REDACTED]           |
+              |   Faces             [BLOCKED]            |
+              |                                          |
+              +------------------------------------------+
+</pre>
+
+<h1>Saniflow</h1>
+
+<p><strong>The sanitization layer between your documents and AI — detect, redact, forget.</strong></p>
+
+<p>
+  <a href="https://github.com/Memory-Bank/saniflow/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/python-3.12+-3776AB.svg?logo=python&logoColor=white" alt="Python 3.12+">
+  <img src="https://img.shields.io/badge/FastAPI-009688.svg?logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/Docker-2496ED.svg?logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS-lightgrey" alt="Platform">
+</p>
+
+</div>
+
+---
 
 ## What It Does
 
-Saniflow runs a pipeline that extracts text and images from documents, detects personally identifiable information (PII) using NLP and pattern matching, and returns a redacted copy with real content removal — not just visual overlays.
+Saniflow is a stateless document sanitization API. It sits between your application and any AI model, ensuring no personally identifiable information ever leaves your perimeter.
 
-**Pipeline**: Upload → Extract → Detect → Sanitize → Output
+Upload a PDF or image. Saniflow extracts text and visual content, detects PII using NLP and pattern matching, applies real redaction (not visual overlays), and returns a clean document.
 
-## Features
+```
+Without Saniflow                          With Saniflow
 
-- **File types**: PDF, JPEG, PNG
-- **Text PII detection**: person names, DNI/NIE, email, phone, IBAN, addresses (Spanish-focused via Presidio + spaCy)
-- **Visual PII detection**: faces (YuNet/OpenCV), signatures (strict mode only)
-- **Two sanitization levels**: `standard` (text PII) and `strict` (text + visual)
-- **Three response formats**: sanitized file, JSON findings report, or both
-- **Real redaction**: underlying content is removed from PDFs via PyMuPDF, not just covered
-- **Stateless**: no database, no sessions — process and forget
+  contract.pdf -----> AI Model              contract.pdf -----> Saniflow -----> AI Model
+  (names, DNIs,       (PII exposed,           |                                   |
+   IBANs, faces)       compliance risk)        v                                   v
+                                          detect + redact                    zero PII exposure
+                                          12 entities found                  compliance maintained
+```
+
+---
 
 ## Quick Start
 
@@ -27,7 +62,7 @@ docker compose up --build
 
 The API is available at `http://localhost:8000`.
 
-### Sanitize a PDF (get sanitized file back)
+**Sanitize a file (get sanitized document back):**
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/sanitize \
@@ -37,7 +72,7 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
   -o document_sanitized.pdf
 ```
 
-### Get findings as JSON
+**Get findings as JSON:**
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/sanitize \
@@ -46,7 +81,7 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
   -F "response_format=json"
 ```
 
-### Get both (file as base64 + findings)
+**Get both (file as base64 + findings):**
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/sanitize \
@@ -55,35 +90,38 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
   -F "response_format=full"
 ```
 
-### Health check
+---
 
-```bash
-curl http://localhost:8000/api/v1/health
-```
+## Features
 
-```json
-{"status": "healthy", "version": "0.1.0"}
-```
+- **File types** -- PDF, JPEG, PNG
+- **Text PII detection** -- Person names, DNI/NIE, email, phone, IBAN, addresses
+- **Visual PII detection** -- Faces (YuNet/OpenCV), signatures (strict mode)
+- **Two sanitization levels** -- `standard` (text PII) and `strict` (text + visual)
+- **Three response formats** -- Sanitized file, JSON findings report, or both
+- **Real redaction** -- Underlying content is removed from PDFs via PyMuPDF, not just covered with rectangles
+- **Stateless** -- No database, no sessions. Process and forget.
+- **Spanish-focused** -- Built with Spanish NER models and document patterns (spaCy + Presidio)
+
+---
 
 ## API Reference
 
 ### `POST /api/v1/sanitize`
 
-Sanitize a document by detecting and redacting PII.
-
-**Parameters** (multipart form):
-
-| Parameter         | Type   | Default    | Description                              |
-|-------------------|--------|------------|------------------------------------------|
-| `file`            | file   | (required) | PDF, JPEG, or PNG to sanitize            |
+| Parameter         | Type   | Default    | Description                                |
+|-------------------|--------|------------|--------------------------------------------|
+| `file`            | file   | (required) | PDF, JPEG, or PNG to sanitize              |
 | `level`           | string | `standard` | Sanitization level: `standard` or `strict` |
 | `response_format` | string | `file`     | Response format: `file`, `json`, or `full` |
 
-**Response formats**:
+**Response formats:**
 
-- **`file`** — Returns the sanitized file as a binary download. Findings are included in the `X-Saniflow-Findings` response header as JSON.
-- **`json`** — Returns findings and summary only (no file).
-- **`full`** — Returns findings, summary, and the sanitized file as a base64-encoded string.
+| Format | Returns |
+|--------|---------|
+| `file` | Sanitized file as a binary download |
+| `json` | JSON object with findings and summary |
+| `full` | JSON object with findings, summary, and the sanitized file as base64 |
 
 **JSON response shape** (`json` and `full` formats):
 
@@ -109,22 +147,22 @@ Sanitize a document by detecting and redacting PII.
 
 The `file` field is only present in `full` format. Fields `original_text`, `page`, and `bbox` may be `null` depending on the entity type.
 
-**Error responses**:
+**Error responses:**
 
-| Status | Condition                          |
-|--------|------------------------------------|
+| Status | Condition                             |
+|--------|---------------------------------------|
 | 413    | File exceeds max size (default 20 MB) |
-| 415    | Unsupported file type              |
-| 422    | Invalid level/format or corrupted file |
-| 500    | Internal processing error          |
+| 415    | Unsupported file type                 |
+| 422    | Invalid level/format or corrupted file|
+| 500    | Internal processing error             |
 
 ### `GET /api/v1/health`
-
-Returns service status.
 
 ```json
 {"status": "healthy", "version": "0.1.0"}
 ```
+
+---
 
 ## Sanitization Levels
 
@@ -133,34 +171,40 @@ Returns service status.
 | `standard` | Yes      | No    | No         |
 | `strict`   | Yes      | Yes   | Yes        |
 
+---
+
 ## Entity Types
 
-| Entity Type   | Detection Method       | Level    |
-|---------------|------------------------|----------|
-| `PERSON_NAME` | spaCy NER              | standard |
-| `DNI_NIE`     | Regex pattern          | standard |
-| `EMAIL`       | Regex + Presidio       | standard |
-| `PHONE`       | Regex + Presidio       | standard |
-| `IBAN`        | Regex pattern          | standard |
-| `ADDRESS`     | spaCy NER              | standard |
-| `FACE`        | YuNet (OpenCV)         | strict   |
+| Entity Type   | Detection Method        | Level    |
+|---------------|-------------------------|----------|
+| `PERSON_NAME` | spaCy NER               | standard |
+| `DNI_NIE`     | Regex pattern           | standard |
+| `EMAIL`       | Regex + Presidio        | standard |
+| `PHONE`       | Regex + Presidio        | standard |
+| `IBAN`        | Regex pattern           | standard |
+| `ADDRESS`     | spaCy NER               | standard |
+| `FACE`        | YuNet (OpenCV)          | strict   |
 | `SIGNATURE`   | OpenCV contour analysis | strict   |
+
+---
 
 ## Configuration
 
 All environment variables are prefixed with `SANIFLOW_`. Copy `.env.example` to `.env` to get started.
 
-| Variable                            | Default                                       | Description                        |
-|-------------------------------------|-----------------------------------------------|------------------------------------|
-| `SANIFLOW_MAX_FILE_SIZE`            | `20971520` (20 MB)                            | Maximum upload file size in bytes  |
-| `SANIFLOW_SUPPORTED_FORMATS`        | `["application/pdf","image/jpeg","image/png"]` | Accepted MIME types                |
-| `SANIFLOW_DEFAULT_LEVEL`            | `standard`                                    | Default sanitization level         |
-| `SANIFLOW_CONFIDENCE_THRESHOLD_REGEX` | `0.7`                                       | Minimum confidence for regex matches |
-| `SANIFLOW_CONFIDENCE_THRESHOLD_NER` | `0.5`                                         | Minimum confidence for NER matches |
-| `SANIFLOW_TESSERACT_LANG`           | `spa`                                         | Tesseract OCR language             |
-| `SANIFLOW_SPACY_MODEL`              | `es_core_news_md`                             | spaCy model for NER                |
-| `SANIFLOW_YUNET_MODEL_PATH`         | `/app/models/face_detection_yunet_2023mar.onnx` | Path to YuNet face detection model |
-| `SANIFLOW_TEMP_DIR`                 | `/tmp/saniflow`                               | Temporary file directory           |
+| Variable                              | Default                                        | Description                          |
+|---------------------------------------|------------------------------------------------|--------------------------------------|
+| `SANIFLOW_MAX_FILE_SIZE`              | `20971520` (20 MB)                             | Maximum upload file size in bytes    |
+| `SANIFLOW_SUPPORTED_FORMATS`          | `["application/pdf","image/jpeg","image/png"]`  | Accepted MIME types                  |
+| `SANIFLOW_DEFAULT_LEVEL`              | `standard`                                     | Default sanitization level           |
+| `SANIFLOW_CONFIDENCE_THRESHOLD_REGEX` | `0.7`                                          | Minimum confidence for regex matches |
+| `SANIFLOW_CONFIDENCE_THRESHOLD_NER`   | `0.5`                                          | Minimum confidence for NER matches   |
+| `SANIFLOW_TESSERACT_LANG`            | `spa`                                          | Tesseract OCR language               |
+| `SANIFLOW_SPACY_MODEL`               | `es_core_news_md`                              | spaCy model for NER                  |
+| `SANIFLOW_YUNET_MODEL_PATH`          | `/app/models/face_detection_yunet_2023mar.onnx` | Path to YuNet face detection model   |
+| `SANIFLOW_TEMP_DIR`                  | `/tmp/saniflow`                                | Temporary file directory             |
+
+---
 
 ## Development
 
@@ -169,21 +213,16 @@ All environment variables are prefixed with `SANIFLOW_`. Copy `.env.example` to 
 Requires Python 3.12+, Tesseract OCR with Spanish language pack, and the YuNet ONNX model.
 
 ```bash
-# Install dependencies
 pip install -e ".[dev]"
 
-# Download spaCy model
 python -m spacy download es_core_news_md
 
-# Download YuNet model
 mkdir -p models
 curl -L -o models/face_detection_yunet_2023mar.onnx \
   https://github.com/opencv/opencv_zoo/raw/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
 
-# Set model path for local dev
 export SANIFLOW_YUNET_MODEL_PATH=models/face_detection_yunet_2023mar.onnx
 
-# Run
 uvicorn app.main:app --reload
 ```
 
@@ -195,41 +234,48 @@ pytest -m "not slow"         # skip slow tests
 pytest -m "not integration"  # unit tests only
 ```
 
+---
+
 ## Architecture
 
 The core is a **pipeline pattern** with pluggable stages:
 
 ```
-Request → Orchestrator → Extractor → Detector → Sanitizer → Response
+Request --> Orchestrator --> Extractor --> Detector --> Sanitizer --> Response
+                |               |             |             |
+                |          PyMuPDF        Presidio      PyMuPDF
+                |          Pillow         spaCy         Pillow
+                |          Tesseract      OpenCV
+                |
+           Resolves file type,
+           selects the right chain
 ```
 
-- **Orchestrator** (`app/pipeline/orchestrator.py`) — resolves file type, selects the right chain of extractor/detector/sanitizer
-- **Extractors** (`app/pipeline/extractors/`) — pull text blocks and embedded images from PDFs and images (PyMuPDF, Pillow, Tesseract)
-- **Detectors** (`app/pipeline/detectors/`) — run Presidio (text PII) and OpenCV (visual PII) based on the sanitization level
-- **Sanitizers** (`app/pipeline/sanitizers/`) — apply real redactions on the original file using coordinates from detectors
+- **Orchestrator** -- Resolves file type, selects the right chain of extractor, detector, and sanitizer
+- **Extractors** -- Pull text blocks and embedded images from PDFs and images
+- **Detectors** -- Run Presidio (text PII) and OpenCV (visual PII) based on sanitization level
+- **Sanitizers** -- Apply real redactions on the original file using coordinates from detectors
 
-Each stage uses base abstract classes with concrete implementations per file type, making it straightforward to add new formats.
+Each stage uses abstract base classes with concrete implementations per file type, making it straightforward to add new formats.
 
-## Roadmap
-
-- Improved Spanish NER with larger spaCy models
-- Async processing with background tasks for large files
-- API key authentication
-- Multi-tenant sanitization policies
-- Audit trail and processing history
-- MCP server for AI tool integration
-- Web frontend
+---
 
 ## Tech Stack
 
 - **Python 3.12** / **FastAPI** / **Uvicorn**
-- **Presidio** (text PII detection) + **spaCy** (NER)
-- **PyMuPDF** (PDF extraction and redaction)
-- **Tesseract OCR** (text from images)
-- **OpenCV** (face and signature detection)
-- **Pillow** (image processing)
-- **Docker** (containerization)
+- **Presidio** + **spaCy** -- text PII detection and NER
+- **PyMuPDF** -- PDF extraction and redaction
+- **Tesseract OCR** -- text extraction from images
+- **OpenCV** -- face and signature detection
+- **Pillow** -- image processing
+- **Docker** -- containerization
 
-## License
+---
 
-MIT
+<div align="center">
+
+<a href="https://github.com/Memory-Bank/saniflow/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+
+<p><sub>MIT License -- Copyright (c) 2025 Pepe Cabeza Cruz</sub></p>
+
+</div>
