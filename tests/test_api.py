@@ -161,7 +161,7 @@ class TestSanitizeEndpoint:
         async with test_client as client:
             resp = await client.post(
                 "/api/v1/sanitize",
-                files={"file": ("test.txt", b"hello world", "text/plain")},
+                files={"file": ("test.xyz", b"hello world", "application/octet-stream")},
             )
 
         assert resp.status_code == 415

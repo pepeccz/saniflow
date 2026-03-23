@@ -23,6 +23,10 @@ _EXT_TO_FORMAT: dict[str, str] = {
     ".jpg": "JPEG",
     ".jpeg": "JPEG",
     ".png": "PNG",
+    ".tiff": "TIFF",
+    ".tif": "TIFF",
+    ".bmp": "BMP",
+    ".webp": "WEBP",
 }
 
 # Default output format when the extension is not recognised.

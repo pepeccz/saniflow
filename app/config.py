@@ -23,6 +23,11 @@ class Settings(BaseSettings):
         "application/pdf",
         "image/jpeg",
         "image/png",
+        "image/tiff",
+        "image/bmp",
+        "image/webp",
+        "text/plain",
+        "text/markdown",
     ]
 
     # Sanitization defaults

@@ -92,26 +92,29 @@ def _make_pipeline_with_mocks(
 ) -> SanitizationPipeline:
     """Build a pipeline with all components mocked."""
     from app.models.extraction import ExtractionResult, SpanMap
+    from app.pipeline.extractors.pdf import PdfExtractor
+    from app.pipeline.sanitizers.pdf import PdfSanitizer
+
+    mock_pdf_extractor = MagicMock()
+    mock_pdf_sanitizer = MagicMock()
 
     pipeline = object.__new__(SanitizationPipeline)
-    pipeline._pdf_extractor = MagicMock()
-    pipeline._image_extractor = MagicMock()
     pipeline._text_detector = MagicMock()
     pipeline._visual_detector = MagicMock()
-    pipeline._pdf_sanitizer = MagicMock()
-    pipeline._image_sanitizer = MagicMock()
+    pipeline._instance_cache = {
+        PdfExtractor: mock_pdf_extractor,
+        PdfSanitizer: mock_pdf_sanitizer,
+    }
 
     extraction = ExtractionResult(
         text="test", span_map=SpanMap(), images=[], pages=1, is_scanned=False,
     )
-    pipeline._pdf_extractor.extract.return_value = extraction
-    pipeline._image_extractor.extract.return_value = extraction
+    mock_pdf_extractor.extract.return_value = extraction
 
     pipeline._text_detector.detect.return_value = text_findings or []
     pipeline._visual_detector.detect.return_value = []
 
-    pipeline._pdf_sanitizer.sanitize.return_value = b"sanitized-pdf"
-    pipeline._image_sanitizer.sanitize.return_value = b"sanitized-img"
+    mock_pdf_sanitizer.sanitize.return_value = b"sanitized-pdf"
 
     return pipeline
 
@@ -187,7 +190,9 @@ class TestEntityFiltering:
         )
 
         # Check what was passed to sanitizer
-        call_args = pipeline._pdf_sanitizer.sanitize.call_args
+        from app.pipeline.sanitizers.pdf import PdfSanitizer
+        mock_sanitizer = pipeline._instance_cache[PdfSanitizer]
+        call_args = mock_sanitizer.sanitize.call_args
         sanitizer_findings = call_args[0][1] if len(call_args[0]) > 1 else call_args.kwargs.get("findings", call_args[0][1])
 
         assert len(sanitizer_findings) == 1
@@ -205,7 +210,9 @@ class TestEntityFiltering:
             redaction_style=RedactionStyle.PLACEHOLDER,
         )
 
-        call_kwargs = pipeline._pdf_sanitizer.sanitize.call_args
+        from app.pipeline.sanitizers.pdf import PdfSanitizer
+        mock_sanitizer = pipeline._instance_cache[PdfSanitizer]
+        call_kwargs = mock_sanitizer.sanitize.call_args
         assert call_kwargs.kwargs.get("style") == RedactionStyle.PLACEHOLDER
 
 

@@ -55,12 +55,12 @@ def _make_pipeline_with_mocks() -> SanitizationPipeline:
     from app.pipeline.sanitizers.pdf import PdfSanitizer
 
     pipeline = object.__new__(SanitizationPipeline)
-    pipeline._pdf_extractor = PdfExtractor()
-    pipeline._image_extractor = MagicMock()
     pipeline._text_detector = MagicMock()
     pipeline._visual_detector = MagicMock()
-    pipeline._pdf_sanitizer = PdfSanitizer()
-    pipeline._image_sanitizer = MagicMock()
+    pipeline._instance_cache = {
+        PdfExtractor: PdfExtractor(),
+        PdfSanitizer: PdfSanitizer(),
+    }
     return pipeline
 
 
@@ -131,31 +131,15 @@ class TestPipelineWithPdf:
 
 @pytest.mark.integration
 class TestPipelineUnsupportedType:
-    """Pipeline behaviour with non-PDF/image content."""
+    """Pipeline behaviour with unsupported file formats."""
 
-    def test_unsupported_content_detected_as_image(self):
-        """Files that are not PDF get routed to the image extractor."""
+    def test_unsupported_format_raises_value_error(self):
+        """Files with unrecognised MIME types raise ValueError."""
         pipeline = _make_pipeline_with_mocks()
-        # Also mock the PDF extractor so we can verify it was NOT called
-        pipeline._pdf_extractor = MagicMock()
 
-        pipeline._image_extractor.extract.return_value = ExtractionResult(
-            text="",
-            span_map=SpanMap(),
-            images=[],
-            pages=1,
-            is_scanned=False,
-        )
-        pipeline._text_detector.detect.return_value = []
-        pipeline._visual_detector.detect.return_value = []
-        pipeline._image_sanitizer.sanitize.return_value = b"fake"
-
-        result = pipeline.process(
-            file_content=b"not a real file",
-            filename="document.txt",
-            level=SanitizationLevel.STANDARD,
-        )
-
-        # Verify image extractor was used (not PDF)
-        pipeline._image_extractor.extract.assert_called_once()
-        pipeline._pdf_extractor.extract.assert_not_called()
+        with pytest.raises(ValueError, match="Unsupported file format"):
+            pipeline.process(
+                file_content=b"not a real file",
+                filename="document.xyz",
+                level=SanitizationLevel.STANDARD,
+            )

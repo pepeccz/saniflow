@@ -1,13 +1,16 @@
 """Pipeline orchestrator — chains extraction, detection, and sanitization.
 
-Resolves file type at runtime and selects the appropriate extractor and
-sanitizer implementations.  Runs text PII detection on every file, and
-visual detection only when the sanitization level is ``strict``.
+Resolves file type at runtime via a format registry and selects the
+appropriate extractor and sanitizer implementations.  Runs text PII
+detection on every file, and visual detection only when the sanitization
+level is ``strict``.
 """
 
 from __future__ import annotations
 
 import logging
+import mimetypes
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.models.findings import (
@@ -24,38 +27,70 @@ from app.pipeline.detectors.text_pii import TextPiiDetector
 from app.pipeline.detectors.visual import VisualDetector
 from app.pipeline.extractors.image import ImageExtractor
 from app.pipeline.extractors.pdf import PdfExtractor
+from app.pipeline.extractors.text import TextExtractor
 from app.pipeline.sanitizers.image import ImageSanitizer
 from app.pipeline.sanitizers.pdf import PdfSanitizer
+from app.pipeline.sanitizers.text import TextSanitizer
 
 logger = logging.getLogger(__name__)
 
-# ── File type resolution ──────────────────────────────────────────────
+# ── Format registry ───────────────────────────────────────────────────
 
-_PDF_EXTENSIONS: frozenset[str] = frozenset({".pdf"})
-_IMAGE_EXTENSIONS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png"})
+
+@dataclass(frozen=True, slots=True)
+class FormatHandler:
+    """Maps a file format to its extractor and sanitizer implementations."""
+
+    extractor_cls: type
+    sanitizer_cls: type
+    category: str  # "pdf", "image", "text"
+
+
+FORMAT_REGISTRY: dict[str, FormatHandler] = {
+    # PDF
+    "application/pdf": FormatHandler(PdfExtractor, PdfSanitizer, "pdf"),
+    # Images
+    "image/jpeg": FormatHandler(ImageExtractor, ImageSanitizer, "image"),
+    "image/png": FormatHandler(ImageExtractor, ImageSanitizer, "image"),
+    "image/tiff": FormatHandler(ImageExtractor, ImageSanitizer, "image"),
+    "image/bmp": FormatHandler(ImageExtractor, ImageSanitizer, "image"),
+    "image/webp": FormatHandler(ImageExtractor, ImageSanitizer, "image"),
+    # Text
+    "text/plain": FormatHandler(TextExtractor, TextSanitizer, "text"),
+    "text/markdown": FormatHandler(TextExtractor, TextSanitizer, "text"),
+}
 
 # PDF magic bytes: "%PDF"
 _PDF_MAGIC = b"%PDF"
 
 
-def _is_pdf(file_content: bytes, filename: str) -> bool:
-    """Determine whether *file_content* is a PDF.
+def _resolve_content_type(
+    file_content: bytes,
+    filename: str,
+    content_type: str | None = None,
+) -> str:
+    """Resolve MIME type from explicit value, filename, or magic bytes.
 
-    Checks the file extension first, then falls back to magic bytes.
+    Raises ``ValueError`` for unsupported formats.
     """
-    ext = Path(filename).suffix.lower()
-    if ext in _PDF_EXTENSIONS:
-        return True
-    if ext in _IMAGE_EXTENSIONS:
-        return False
-    # Fallback: inspect magic bytes.
-    return file_content[:4] == _PDF_MAGIC
+    if content_type and content_type in FORMAT_REGISTRY:
+        return content_type
+
+    guessed, _ = mimetypes.guess_type(filename)
+    if guessed and guessed in FORMAT_REGISTRY:
+        return guessed
+
+    # Fallback: PDF magic bytes.
+    if file_content[:4] == _PDF_MAGIC:
+        return "application/pdf"
+
+    raise ValueError(f"Unsupported file format: {filename} (content_type={content_type})")
 
 
 class SanitizationPipeline:
     """Orchestrates the full sanitization pipeline.
 
-    1. Determine file type (PDF vs image).
+    1. Resolve file type via the format registry.
     2. Extract text + images with the appropriate extractor.
     3. Run text PII detection (always).
     4. Run visual PII detection (faces + signatures) if level is strict.
@@ -65,17 +100,18 @@ class SanitizationPipeline:
     """
 
     def __init__(self) -> None:
-        # Extractors
-        self._pdf_extractor = PdfExtractor()
-        self._image_extractor = ImageExtractor()
-
         # Detectors
         self._text_detector = TextPiiDetector()
         self._visual_detector = VisualDetector()
 
-        # Sanitizers
-        self._pdf_sanitizer = PdfSanitizer()
-        self._image_sanitizer = ImageSanitizer()
+        # Lazy instance cache for extractors/sanitizers
+        self._instance_cache: dict[type, object] = {}
+
+    def _get_instance(self, cls: type) -> object:
+        """Return a cached instance of *cls*, creating one if needed."""
+        if cls not in self._instance_cache:
+            self._instance_cache[cls] = cls()
+        return self._instance_cache[cls]
 
     def process(
         self,
@@ -85,6 +121,7 @@ class SanitizationPipeline:
         response_format: ResponseFormat = ResponseFormat.FILE,
         redaction_style: RedactionStyle = RedactionStyle.BLACK,
         redact_entities: list[str] | None = None,
+        content_type: str | None = None,
     ) -> SanitizationResult:
         """Run the full sanitization pipeline on *file_content*.
 
@@ -95,22 +132,26 @@ class SanitizationPipeline:
             response_format: Controls what the API returns. The pipeline always
                 produces findings and sanitized bytes; the API layer decides
                 what to include in the response based on this value.
+            content_type: Optional explicit MIME type (e.g. from the upload).
 
         Returns:
             A ``SanitizationResult`` with findings, summary, and sanitized content.
         """
-        is_pdf = _is_pdf(file_content, filename)
-        file_type = "PDF" if is_pdf else "image"
-        logger.info("Processing '%s' as %s (level=%s)", filename, file_type, level.value)
+        ct = _resolve_content_type(file_content, filename, content_type)
+        handler = FORMAT_REGISTRY[ct]
+        logger.info(
+            "Processing '%s' as %s (category=%s, level=%s)",
+            filename, ct, handler.category, level.value,
+        )
 
         # ── Step 0: Preprocess ─────────────────────────────────────────
-        if not is_pdf:
+        if handler.category == "image":
             if settings.DOCUMENT_EXTRACTION_ENABLED:
                 file_content = extract_document_region(file_content, filename)
             file_content = normalize_image(file_content, filename)
 
         # ── Step 1: Extract ───────────────────────────────────────────
-        extractor = self._pdf_extractor if is_pdf else self._image_extractor
+        extractor = self._get_instance(handler.extractor_cls)
         extraction_result = extractor.extract(file_content, filename)
 
         logger.info(
@@ -151,7 +192,7 @@ class SanitizationPipeline:
         findings_to_redact = [f for f in findings if f.redacted]
 
         # ── Step 3: Sanitize ──────────────────────────────────────────
-        sanitizer = self._pdf_sanitizer if is_pdf else self._image_sanitizer
+        sanitizer = self._get_instance(handler.sanitizer_cls)
         sanitized_bytes = sanitizer.sanitize(
             file_content, findings_to_redact, filename, style=redaction_style,
         )
