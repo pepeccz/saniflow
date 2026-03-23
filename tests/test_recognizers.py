@@ -16,7 +16,7 @@ import pytest
 
 from app.models.findings import EntityType, Finding
 from app.pipeline.detectors.recognizers.es_person import PERSON_DENY_LIST
-from app.pipeline.detectors.text_pii import _filter_person_findings, _selective_title_case
+from app.pipeline.detectors.text_pii import _ES_STOPWORDS, _filter_person_findings, _selective_title_case
 from tests.conftest import PRESIDIO_AVAILABLE
 
 # ---------------------------------------------------------------------------
@@ -272,3 +272,64 @@ class TestFilterPersonFindings:
         assert len(result) == 2
         assert result[0].original_text == "García López"
         assert result[1].entity_type == EntityType.IBAN
+
+    # -- Stopword filter tests --
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "del Seguro, en cumplimiento",
+            "Condiciones de Póliza",
+            "Según el Reglamento",
+            "Para la Cobertura",
+        ],
+    )
+    def test_stopword_tokens_rejected(self, text: str):
+        """Findings containing Spanish stopwords should be rejected."""
+        findings = [_make_person_finding(text)]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert result == [], f"Expected rejection for '{text}'"
+
+    def test_real_name_no_stopwords_passes(self):
+        """Real person names with no stopwords should pass."""
+        findings = [_make_person_finding("Cabeza Cruz, Pepe")]
+        result = _filter_person_findings(findings, PERSON_DENY_LIST)
+        assert len(result) == 1
+        assert result[0].original_text == "Cabeza Cruz, Pepe"
+
+
+# ===========================================================================
+# ES_PERSON_INVERTED regex — case sensitivity & newline boundary
+# ===========================================================================
+
+
+# Regex duplicated from es_person.py for environments where Presidio is mocked
+_PERSON_INVERTED = (
+    r"\b[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ]+"
+    r"[^\S\n]+[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ]+"
+    r",[^\S\n]*[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ]+"
+    r"(?:[^\S\n]+[A-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ]+)?\b"
+)
+
+
+class TestEsPersonInvertedRegex:
+    """Tests for the ES_PERSON_INVERTED regex pattern directly."""
+
+    @pytest.fixture()
+    def pattern(self) -> re.Pattern[str]:
+        return re.compile(_PERSON_INVERTED)
+
+    def test_properly_capitalised_match(self, pattern: re.Pattern[str]):
+        assert pattern.search("Cabeza Cruz, Pepe")
+
+    def test_lowercase_no_match(self, pattern: re.Pattern[str]):
+        """Without (?i), all-lowercase should NOT match."""
+        assert pattern.search("cabeza cruz, pepe") is None
+
+    def test_does_not_cross_newline(self, pattern: re.Pattern[str]):
+        """Regex should not match across line boundaries."""
+        text = "Cabeza Cruz, Pepe\nSurne"
+        match = pattern.search(text)
+        # Should match "Cabeza Cruz, Pepe" but NOT include "Surne"
+        assert match is not None
+        assert "\n" not in match.group()

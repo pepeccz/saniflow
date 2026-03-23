@@ -29,6 +29,17 @@ from app.pipeline.detectors.recognizers.es_phone import EsPhoneRecognizer
 
 logger = logging.getLogger(__name__)
 
+# ── Spanish stopwords (used to reject false-positive person names) ────
+
+_ES_STOPWORDS: frozenset[str] = frozenset({
+    "de", "del", "la", "el", "los", "las", "en", "por", "con", "para",
+    "que", "como", "salvo", "así", "sobre", "hasta", "según", "entre",
+    "desde", "bajo", "ante", "sin", "tras", "al", "un", "una", "su",
+    "sus", "se", "si", "no", "ya", "más", "muy", "cada", "todo", "toda",
+    "otros", "otras", "este", "esta", "ese", "esa", "será", "debe",
+    "puede", "sino", "donde", "cuando", "también", "otro", "otra",
+})
+
 # ── Preprocessing helpers ─────────────────────────────────────────────
 
 _ALL_CAPS_RE = re.compile(r"\b[A-ZÁÉÍÓÚÑ]{2,}\b")
@@ -55,6 +66,10 @@ def _filter_person_findings(
         if len(tokens) < 2 or len(tokens) > 4:
             continue
         if all(t.lower() in deny_list for t in tokens):
+            continue
+        # Reject if ANY token is a common Spanish stopword — real names
+        # never contain prepositions, articles, or conjunctions.
+        if any(t.lower() in _ES_STOPWORDS for t in tokens):
             continue
         filtered.append(f)
     return filtered
