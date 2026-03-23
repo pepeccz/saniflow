@@ -149,6 +149,13 @@ class PdfExtractor:
         text_parts.append("\n")
         page_text_parts.append("\n")
 
+        # Validate SpanMap stays in sync with assembled text.
+        assembled_len = sum(len(p) for p in text_parts)
+        assert span_map.cursor == assembled_len, (
+            f"SpanMap drift on page {page_idx}: "
+            f"cursor={span_map.cursor}, text_len={assembled_len}"
+        )
+
         return "".join(page_text_parts)
 
     # ------------------------------------------------------------------
@@ -208,6 +215,13 @@ class PdfExtractor:
 
         span_map.advance(1)
         text_parts.append("\n")
+
+        # Validate SpanMap stays in sync with assembled text (OCR path).
+        assembled_len = sum(len(p) for p in text_parts)
+        assert span_map.cursor == assembled_len, (
+            f"SpanMap drift (OCR) on page {page_idx}: "
+            f"cursor={span_map.cursor}, text_len={assembled_len}"
+        )
 
     # ------------------------------------------------------------------
     # Image extraction

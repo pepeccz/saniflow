@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import json
 import logging
 from io import BytesIO
 
@@ -188,18 +187,10 @@ async def sanitize(
 
     output_filename = result.output_filename or _build_sanitized_filename(filename)
 
-    # Build compact findings JSON for the header
-    findings_json = json.dumps(
-        [f.model_dump(exclude_none=True) for f in findings],
-        separators=(",", ":"),
-        ensure_ascii=True,
-    )
-
     return StreamingResponse(
         content=BytesIO(result.sanitized_content),
         media_type=content_type,
         headers={
             "Content-Disposition": f'attachment; filename="{output_filename}"',
-            "X-Saniflow-Findings": findings_json,
         },
     )

@@ -15,6 +15,7 @@ class EntityType(str, Enum):
     PHONE = "PHONE"
     IBAN = "IBAN"
     ADDRESS = "ADDRESS"
+    DATE_OF_BIRTH = "DATE_OF_BIRTH"
     FACE = "FACE"
     SIGNATURE = "SIGNATURE"
 
