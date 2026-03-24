@@ -39,7 +39,7 @@
 
 Saniflow is a stateless document sanitization API. It sits between your application and any AI model, ensuring no personally identifiable information ever leaves your perimeter.
 
-Upload a PDF or image. Saniflow extracts text and visual content, detects PII using NLP and pattern matching, applies real redaction (not visual overlays), and returns a clean document.
+Upload a PDF, spreadsheet, document, or image. Saniflow extracts text and visual content, detects PII using NLP and pattern matching, applies real redaction (not visual overlays), and returns a clean document.
 
 ```
 Without Saniflow                          With Saniflow
@@ -99,7 +99,7 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
 
 ## Features
 
-- **File types** -- PDF, JPEG, PNG
+- **File types** -- PDF, images (JPEG, PNG, TIFF, BMP, WebP), text (plain, Markdown), spreadsheets (CSV, XLSX, ODS), documents (DOCX, ODT, RTF), structured data (JSON, HTML)
 - **Text PII detection** -- Person names, DNI/NIE, email, phone, IBAN, addresses
 - **Visual PII detection** -- Faces (YuNet/OpenCV), signatures (strict mode)
 - **Two sanitization levels** -- `standard` (text PII) and `strict` (text + visual)
@@ -121,9 +121,20 @@ curl -X POST http://localhost:8000/api/v1/sanitize \
 
 | Parameter         | Type   | Default    | Description                                |
 |-------------------|--------|------------|--------------------------------------------|
-| `file`            | file   | (required) | PDF, JPEG, or PNG to sanitize              |
+| `file`            | file   | (required) | File to sanitize (see supported formats below) |
 | `level`           | string | `standard` | Sanitization level: `standard` or `strict` |
 | `response_format` | string | `file`     | Response format: `file`, `json`, or `full` |
+
+**Supported file types:**
+
+| Category | Formats | MIME Types |
+|----------|---------|------------|
+| PDF | PDF | `application/pdf` |
+| Images | JPEG, PNG, TIFF, BMP, WebP | `image/jpeg`, `image/png`, `image/tiff`, `image/bmp`, `image/webp` |
+| Text | Plain text, Markdown | `text/plain`, `text/markdown` |
+| Spreadsheets | CSV, XLSX, ODS | `text/csv`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `application/vnd.oasis.opendocument.spreadsheet` |
+| Documents | DOCX, ODT, RTF | `application/vnd.openxmlformats-officedocument.wordprocessingml.document`, `application/vnd.oasis.opendocument.text`, `text/rtf` |
+| Structured | JSON, HTML | `application/json`, `text/html` |
 
 **Response formats:**
 
@@ -246,7 +257,7 @@ All environment variables are prefixed with `SANIFLOW_`. Copy `.env.example` to 
 | Variable                              | Default                                        | Description                          |
 |---------------------------------------|------------------------------------------------|--------------------------------------|
 | `SANIFLOW_MAX_FILE_SIZE`              | `20971520` (20 MB)                             | Maximum upload file size in bytes    |
-| `SANIFLOW_SUPPORTED_FORMATS`          | `["application/pdf","image/jpeg","image/png"]`  | Accepted MIME types                  |
+| `SANIFLOW_SUPPORTED_FORMATS`          | (see supported formats)                         | Accepted MIME types                  |
 | `SANIFLOW_DEFAULT_LEVEL`              | `standard`                                     | Default sanitization level           |
 | `SANIFLOW_CONFIDENCE_THRESHOLD_REGEX` | `0.7`                                          | Minimum confidence for regex matches |
 | `SANIFLOW_CONFIDENCE_THRESHOLD_NER`   | `0.5`                                          | Minimum confidence for NER matches   |
@@ -269,7 +280,7 @@ All environment variables are prefixed with `SANIFLOW_`. Copy `.env.example` to 
 Requires Python 3.12+, Tesseract OCR with Spanish language pack, and the YuNet ONNX model.
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,all-formats]"
 
 python -m spacy download es_core_news_md
 
@@ -301,16 +312,21 @@ Request --> Orchestrator --> Extractor --> Detector --> Sanitizer --> Response
                 |               |             |             |
                 |          PyMuPDF        Presidio      PyMuPDF
                 |          Pillow         spaCy         Pillow
-                |          Tesseract      OpenCV
+                |          Tesseract      OpenCV        openpyxl
+                |          openpyxl                     python-docx
+                |          python-docx                  odfpy
+                |          odfpy
+                |          BeautifulSoup4
+                |          striprtf
                 |
            Resolves file type,
            selects the right chain
 ```
 
 - **Orchestrator** -- Resolves file type, selects the right chain of extractor, detector, and sanitizer
-- **Extractors** -- Pull text blocks and embedded images from PDFs and images
+- **Extractors** -- Pull text from PDFs, images, spreadsheets, documents, and structured data
 - **Detectors** -- Run Presidio (text PII) and OpenCV (visual PII) based on sanitization level
-- **Sanitizers** -- Apply real redactions on the original file using coordinates from detectors
+- **Sanitizers** -- Apply redactions preserving original file format
 
 Each stage uses abstract base classes with concrete implementations per file type, making it straightforward to add new formats.
 
@@ -325,6 +341,11 @@ Each stage uses abstract base classes with concrete implementations per file typ
 - **OpenCV** -- face and signature detection
 - **Pillow** -- image processing
 - **Docker** -- containerization
+- **openpyxl** -- XLSX spreadsheet support (optional)
+- **python-docx** -- DOCX document support (optional)
+- **odfpy** -- ODS/ODT OpenDocument support (optional)
+- **BeautifulSoup4** -- HTML parsing (optional)
+- **striprtf** -- RTF text extraction (optional)
 
 ---
 
